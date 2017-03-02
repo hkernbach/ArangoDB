@@ -2,5 +2,5 @@
 	path = 3rdParty/V8/v8
 	url = https://github.com/arangodb-helper/v8.git
 [submodule "3rdParty/jemalloc/jemalloc"]
-	path = 3rdParty/jemalloc/jemalloc
+	path = 3rdParty/jemalloc/4.4.0
 	url = https://github.com/arangodb-helper/jemalloc.git

@@ -29,6 +29,7 @@ CMake flags
  * *-DUSE_MAINTAINER_MODE=1* - generate lex/yacc and errors files
  * *-DUSE_BACKTRACE=1* - add backtraces to native code asserts & exceptions
  * *-DUSE_FAILURE_TESTS=1* - adds javascript hook to crash the server for data integrity tests
+ * *-DUSE_CATCH_TESTS=On (default is On so this is set unless you explicitly disable it)
 
 CFLAGS
 ------
@@ -166,8 +167,7 @@ Test frameworks used
 ====================
 There are several major places where unittests live: 
  - *UnitTests/HttpInterface*        - rspec tests
- - *UnitTests/Basics*               - boost unittests
- - *UnitTests/Geo*                  - boost unittests
+ - tests/*                          - catch unittests
  - *js/server/tests*                - runneable on the server
  - *js/common/tests*                - runneable on the server & via arangosh
  - *js/common/test-data*
@@ -365,6 +365,34 @@ via the environment variable or in the menu. Given we want to store the symbols 
     set _NT_SYMBOL_PATH=cache*e:\symbol_cache\cache;srv*e:\symbol_cache\arango*https://www.arangodb.com/repositories/symsrv/;SRV*e:\symbol_cache\ms*http://msdl.microsoft.com/download/symbols
 
 You then will be able to see stack traces in the debugger.
+
+You may also try to download the symbols manually using: 
+
+    symchk.exe arangod.exe /s SRV*e:/symbol_cache/cache*https://www.arangodb.com/repositories/symsrv/
+
+
+The symbolserver over at https://www.arangodb.com/repositories/symsrv/ is browseable; thus you can easily download the files you need by hand. It contains of a list of directories corosponding to the components of arangodb:
+
+  - arango - the basic arangodb library needed by all components
+  - arango_v8 - the basic V8 wrappers needed by all components
+  - arangod - the server process 
+  - the client utilities:
+    - arangob
+    - arangobench
+    - arangoexport
+    - arangoimp
+    - arangorestore
+    - arangosh
+    - arangovpack
+
+In these directories you will find subdirectories with the hash corosponding to the id of the binaries. Their date should corrospond to the release date of their respective arango release. 
+
+This means i.e. for ArangoDB 3.1.11: 
+
+ https://www.arangodb.com/repositories/symsrv/arangod.pdb/A8B899D2EDFC40E994C30C32FCE5FB346/arangod.pd_
+
+This file is a microsoft cabinet file, which is a little bit compressed. You can dismantle it so the windows explorer offers you its proper handler by renaming it to .cab; click on the now named `arangod.cab`, copy the contained arangod.pdb into your symbol path.
+
 
 Coredump analysis
 -----------------

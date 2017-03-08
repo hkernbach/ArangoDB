@@ -144,6 +144,8 @@ SET(ARANGOD_SOURCES
   Aql/OptimizerRules.cpp
   Aql/Parser.cpp
   Aql/PlanCache.cpp
+  Aql/QueryExecutionState.cpp
+  Aql/QueryProfile.cpp
   Aql/Quantifier.cpp
   Aql/Query.cpp
   Aql/QueryCache.cpp
@@ -169,6 +171,21 @@ SET(ARANGOD_SOURCES
   Aql/VariableGenerator.cpp
   Aql/grammar.cpp
   Aql/tokens.cpp
+  Cache/Cache.cpp
+  Cache/CacheManagerFeature.cpp
+  Cache/CacheManagerFeatureThreads.cpp
+  Cache/CachedValue.cpp
+  Cache/Manager.cpp
+  Cache/ManagerTasks.cpp
+  Cache/Metadata.cpp
+  Cache/PlainBucket.cpp
+  Cache/PlainCache.cpp
+  Cache/Rebalancer.cpp
+  Cache/State.cpp
+  Cache/Transaction.cpp
+  Cache/TransactionalBucket.cpp
+  Cache/TransactionalCache.cpp
+  Cache/TransactionManager.cpp
   Cluster/AgencyCallback.cpp
   Cluster/AgencyCallbackRegistry.cpp
   Cluster/ClusterComm.cpp
@@ -177,6 +194,7 @@ SET(ARANGOD_SOURCES
   Cluster/ClusterInfo.cpp
   Cluster/ClusterMethods.cpp
   Cluster/ClusterTraverser.cpp
+  Cluster/CollectionLockState.cpp
   Cluster/FollowerInfo.cpp
   Cluster/DBServerAgencySync.cpp
   Cluster/HeartbeatThread.cpp
@@ -215,6 +233,7 @@ SET(ARANGOD_SOURCES
   MMFiles/MMFilesCompactorThread.cpp
   MMFiles/MMFilesDatafile.cpp
   MMFiles/MMFilesDatafileStatistics.cpp
+  MMFiles/MMFilesDitch.cpp
   MMFiles/MMFilesDocumentOperation.cpp
   MMFiles/MMFilesEdgeIndex.cpp
   MMFiles/MMFilesEngine.cpp
@@ -234,6 +253,7 @@ SET(ARANGOD_SOURCES
   MMFiles/MMFilesSkiplistIndex.cpp
   MMFiles/MMFilesSynchronizerThread.cpp
   MMFiles/MMFilesTransactionCollection.cpp
+  MMFiles/MMFilesTransactionContextData.cpp
   MMFiles/MMFilesTransactionState.cpp
   MMFiles/MMFilesWalLogfile.cpp
   MMFiles/MMFilesWalRecoverState.cpp
@@ -292,7 +312,6 @@ SET(ARANGOD_SOURCES
   RestServer/UpgradeFeature.cpp
   RestServer/VocbaseContext.cpp
   RestServer/WorkMonitorFeature.cpp
-  RestServer/arangod.cpp
   Scheduler/Acceptor.cpp
   Scheduler/AcceptorTcp.cpp
   Scheduler/Job.cpp
@@ -312,8 +331,11 @@ SET(ARANGOD_SOURCES
   StorageEngine/EngineSelectorFeature.cpp
   StorageEngine/TransactionCollection.cpp
   StorageEngine/TransactionState.cpp
+  Transaction/Context.cpp
   Transaction/Helpers.cpp
   Transaction/Methods.cpp
+  Transaction/StandaloneContext.cpp
+  Transaction/V8Context.cpp
   Utils/CollectionExport.cpp
   Utils/CollectionKeys.cpp
   Utils/CollectionKeysRepository.cpp
@@ -322,9 +344,6 @@ SET(ARANGOD_SOURCES
   Utils/CursorRepository.cpp
   Utils/OperationCursor.cpp
   Utils/SingleCollectionTransaction.cpp
-  Utils/StandaloneTransactionContext.cpp
-  Utils/TransactionContext.cpp
-  Utils/V8TransactionContext.cpp
   Utils/WorkMonitorArangod.cpp
   V8Server/FoxxQueuesFeature.cpp
   V8Server/V8Context.cpp
@@ -344,7 +363,6 @@ SET(ARANGOD_SOURCES
   V8Server/v8-vocindex.cpp
   VocBase/AuthInfo.cpp
   VocBase/DatafileStatisticsContainer.cpp
-  VocBase/Ditch.cpp
   VocBase/EdgeCollectionInfo.cpp
   VocBase/Graphs.cpp
   VocBase/KeyGenerator.cpp
@@ -368,13 +386,13 @@ if (NOT MSVC)
   set(ARANGOD_SOURCES ${ARANGOD_SOURCES} Scheduler/AcceptorUnixDomain.cpp Scheduler/SocketUnixDomain.cpp)
 endif()
 
-add_executable(${BIN_ARANGOD} ${ARANGOD_SOURCES})
+add_library(arangoserver STATIC ${ARANGOD_SOURCES})
 
 if (USE_SSL)
   target_compile_definitions(${BIN_ARANGOD} PUBLIC "ARANGODB_SSL_ENABLED=1")
 endif()
 
-target_link_libraries(${BIN_ARANGOD}
+target_link_libraries(arangoserver
   ${LIB_ARANGO_FE}
   ${LIB_ARANGO_V8}
   ${LIB_ARANGO}
@@ -382,9 +400,17 @@ target_link_libraries(${BIN_ARANGOD}
   ${MSVC_LIBS}
   ${V8_LIBS}
   ${ROCKSDB_LIBS}
-  ${SYSTEM_LIBRARIES}
   boost_boost
   boost_system
+  ${SYSTEM_LIBRARIES}
+)
+
+add_executable(${BIN_ARANGOD}
+  RestServer/arangod.cpp
+)
+
+target_link_libraries(${BIN_ARANGOD}
+  arangoserver
 )
 
 install(

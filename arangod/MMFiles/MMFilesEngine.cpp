@@ -31,10 +31,6 @@
 #include "Basics/WriteLocker.h"
 #include "Basics/encoding.h"
 #include "Basics/files.h"
-#include "Random/RandomGenerator.h"
-#include "RestServer/DatabaseFeature.h"
-#include "RestServer/DatabasePathFeature.h"
-#include "StorageEngine/EngineSelectorFeature.h"
 #include "MMFiles/MMFilesAqlFunctions.h"
 #include "MMFiles/MMFilesCleanupThread.h"
 #include "MMFiles/MMFilesCompactorThread.h"
@@ -45,7 +41,12 @@
 #include "MMFiles/MMFilesPersistentIndex.h"
 #include "MMFiles/MMFilesPersistentIndexFeature.h"
 #include "MMFiles/MMFilesTransactionCollection.h"
+#include "MMFiles/MMFilesTransactionContextData.h"
 #include "MMFiles/MMFilesTransactionState.h"
+#include "Random/RandomGenerator.h"
+#include "RestServer/DatabaseFeature.h"
+#include "RestServer/DatabasePathFeature.h"
+#include "StorageEngine/EngineSelectorFeature.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/ticks.h"
 #include "VocBase/vocbase.h"
@@ -129,7 +130,9 @@ MMFilesEngine::MMFilesEngine(application_features::ApplicationServer* server)
     : StorageEngine(server, EngineName, FeatureName, new MMFilesIndexFactory())
     , _isUpgrade(false)
     , _maxTick(0) 
-    {}
+    {
+      startsAfter("PersistentIndex");
+    }
 
 MMFilesEngine::~MMFilesEngine() {
 }
@@ -223,7 +226,11 @@ void MMFilesEngine::stop() {
   logfileManager->flush(true, true, false);
   logfileManager->waitForCollector();
 }
-  
+ 
+transaction::ContextData* MMFilesEngine::createTransactionContextData() {
+  return new MMFilesTransactionContextData;
+}
+
 TransactionState* MMFilesEngine::createTransactionState(TRI_vocbase_t* vocbase) {
   return new MMFilesTransactionState(vocbase);
 }
@@ -233,9 +240,9 @@ TransactionCollection* MMFilesEngine::createTransactionCollection(TransactionSta
 }
 
 // create storage-engine specific collection
-PhysicalCollection* MMFilesEngine::createPhysicalCollection(LogicalCollection* collection) {
+PhysicalCollection* MMFilesEngine::createPhysicalCollection(LogicalCollection* collection, VPackSlice const& info) {
   TRI_ASSERT(EngineSelectorFeature::ENGINE == this);
-  return new MMFilesCollection(collection);
+  return new MMFilesCollection(collection, info);
 }
 
 void MMFilesEngine::recoveryDone(TRI_vocbase_t* vocbase) {    
@@ -495,15 +502,16 @@ int MMFilesEngine::getCollectionsAndIndexes(TRI_vocbase_t* vocbase,
     int res = TRI_ERROR_NO_ERROR;
 
     try {
-      std::unique_ptr<LogicalCollection> collection(loadCollectionInfo(vocbase, directory));
-     
-      if (collection->deleted()) {
-        _deleted.emplace_back(std::make_pair(collection->name(), directory));
+      VPackBuilder builder = loadCollectionInfo(vocbase, directory);
+      VPackSlice info = builder.slice();
+
+      if (VelocyPackHelper::readBooleanValue(info, "deleted", false)) {
+        std::string name = VelocyPackHelper::getStringValue(info, "name", "");
+        _deleted.emplace_back(std::make_pair(name, directory));
         continue;
       }
-
       // add collection info
-      collection->toVelocyPack(result, true);
+      result.add(info);
     } catch (arangodb::basics::Exception const& e) {
       std::string tmpfile = FileUtils::buildFilename(directory, ".tmp");
 
@@ -526,6 +534,10 @@ int MMFilesEngine::getCollectionsAndIndexes(TRI_vocbase_t* vocbase,
   result.close();
 
   return TRI_ERROR_NO_ERROR;
+}
+  
+void MMFilesEngine::waitForSync(TRI_voc_tick_t tick) {
+  MMFilesLogfileManager::instance()->slots()->waitForTick(tick);
 }
 
 TRI_vocbase_t* MMFilesEngine::openDatabase(arangodb::velocypack::Slice const& args, bool isUpgrade, int& status) {
@@ -618,10 +630,10 @@ std::string MMFilesEngine::createCollection(TRI_vocbase_t* vocbase, TRI_voc_cid_
   std::string const path = databasePath(vocbase);
 
   // sanity check
-  if (sizeof(TRI_df_header_marker_t) + sizeof(TRI_df_footer_marker_t) > parameters->journalSize()) {
+  if (sizeof(TRI_df_header_marker_t) + sizeof(TRI_df_footer_marker_t) > parameters->getPhysical()->journalSize()) {
     LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "cannot create datafile '" << parameters->name() << "' in '"
              << path << "', maximal size '"
-             << parameters->journalSize() << "' is too small";
+             << parameters->getPhysical()->journalSize() << "' is too small";
     THROW_ARANGO_EXCEPTION(TRI_ERROR_ARANGO_DATAFILE_FULL);
   }
 
@@ -840,29 +852,6 @@ void MMFilesEngine::createIndex(TRI_vocbase_t* vocbase, TRI_voc_cid_t collection
     THROW_ARANGO_EXCEPTION(TRI_errno());
   }
 }
-
-void MMFilesEngine::createIndexWalMarker(TRI_vocbase_t* vocbase, TRI_voc_cid_t collectionId,
-                          arangodb::velocypack::Slice const& data, bool writeMarker, int& status){
-
-  status = TRI_ERROR_NO_ERROR;
-  if (!writeMarker) {
-    return;
-  }
-
-  try {
-    MMFilesCollectionMarker marker(TRI_DF_MARKER_VPACK_CREATE_INDEX,
-                                   vocbase->id(), collectionId, data);
-
-    MMFilesWalSlotInfoCopy slotInfo =
-        MMFilesLogfileManager::instance()->allocateAndWrite(marker, false);
-    status=slotInfo.errorCode;
-  } catch (arangodb::basics::Exception const& ex) {
-    status = ex.code();
-  } catch (...) {
-    status = TRI_ERROR_INTERNAL;
-  }
-
-};
 
 // asks the storage engine to drop the specified index and persist the deletion 
 // info. Note that physical deletion of the index must not be carried out by this call, 
@@ -1293,7 +1282,13 @@ TRI_vocbase_t* MMFilesEngine::openExistingDatabase(TRI_voc_tick_t id, std::strin
     for (auto const& it : VPackArrayIterator(slice)) {
       // we found a collection that is still active
       TRI_ASSERT(!it.get("id").isNone() || !it.get("cid").isNone());
-      arangodb::LogicalCollection* collection = StorageEngine::registerCollection(vocbase.get(), it);
+      auto uniqCol = std::make_unique<arangodb::LogicalCollection>(vocbase.get(), it);
+      auto collection = uniqCol.get();
+      TRI_ASSERT(collection != nullptr);
+      StorageEngine::registerCollection(vocbase.get(), uniqCol.get());
+      // The vocbase has taken over control
+      uniqCol.release();
+
 
       auto physical = static_cast<MMFilesCollection*>(collection->getPhysical());
       TRI_ASSERT(physical != nullptr);
@@ -1423,9 +1418,8 @@ void MMFilesEngine::saveCollectionInfo(TRI_vocbase_t* vocbase,
                                        bool forceSync) const {
   std::string const filename = collectionParametersFilename(vocbase->id(), id);
 
-  VPackBuilder builder;
-  parameters->toVelocyPack(builder, false);
-
+  VPackBuilder builder =
+      parameters->toVelocyPackIgnore({"path", "statusString"}, true);
   TRI_ASSERT(id != 0);
 
   bool ok = VelocyPackHelper::velocyPackToFile(filename,
@@ -1438,7 +1432,7 @@ void MMFilesEngine::saveCollectionInfo(TRI_vocbase_t* vocbase,
   }
 }
 
-LogicalCollection* MMFilesEngine::loadCollectionInfo(TRI_vocbase_t* vocbase, std::string const& path) {
+VPackBuilder MMFilesEngine::loadCollectionInfo(TRI_vocbase_t* vocbase, std::string const& path) {
   // find parameter file
   std::string filename =
       arangodb::basics::FileUtils::buildFilename(path, parametersFilename());
@@ -1555,10 +1549,7 @@ LogicalCollection* MMFilesEngine::loadCollectionInfo(TRI_vocbase_t* vocbase, std
   indexesPatch.close();
   indexesPatch.close();
 
-  VPackBuilder b3 = VPackCollection::merge(slice, indexesPatch.slice(), false);
-  slice = b3.slice();
-  
-  return new LogicalCollection(vocbase, slice, true);
+  return VPackCollection::merge(slice, indexesPatch.slice(), false);
 }
 
 /// @brief remove data of expired compaction blockers
@@ -2149,7 +2140,9 @@ int MMFilesEngine::transferMarkersWorker(
   // used only for crash / recovery tests
   int numMarkers = 0;
 
-  TRI_voc_tick_t const minTransferTick = collection->maxTick();
+  MMFilesCollection* mmfiles = static_cast<MMFilesCollection*>(collection->getPhysical());
+  TRI_ASSERT(mmfiles);
+  TRI_voc_tick_t const minTransferTick = mmfiles->maxTick();
   TRI_ASSERT(!operations.empty());
 
   for (auto it2 = operations.begin(); it2 != operations.end(); ++it2) {
@@ -2239,8 +2232,9 @@ char* MMFilesEngine::nextFreeMarkerPosition(
 
     // we only need the ditches when we are outside the recovery
     // the compactor will not run during recovery
-    auto ditch =
-        collection->ditches()->createDocumentDitch(false, __FILE__, __LINE__);
+    auto ditch = arangodb::MMFilesCollection::toMMFilesCollection(collection)
+                     ->ditches()
+                     ->createMMFilesDocumentDitch(false, __FILE__, __LINE__);
 
     if (ditch == nullptr) {
       THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);
@@ -2270,8 +2264,10 @@ void MMFilesEngine::finishMarker(char const* walPosition,
   // update ticks
   TRI_UpdateTicksDatafile(datafile, marker);
 
-  TRI_ASSERT(collection->maxTick() < tick);
-  collection->maxTick(tick);
+  MMFilesCollection* mmfiles = static_cast<MMFilesCollection*>(collection->getPhysical());
+  TRI_ASSERT(mmfiles);
+  TRI_ASSERT(mmfiles->maxTick() < tick);
+  mmfiles->maxTick(tick);
 
   cache->operations->emplace_back(MMFilesCollectorOperation(
       datafilePosition, marker->getSize(), walPosition, cache->lastFid));

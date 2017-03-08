@@ -45,7 +45,7 @@
 #include "Utils/OperationOptions.h"
 #include "Utils/OperationResult.h"
 #include "Utils/SingleCollectionTransaction.h"
-#include "Utils/StandaloneTransactionContext.h"
+#include "Transaction/StandaloneContext.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/vocbase.h"
 
@@ -101,7 +101,7 @@ bool State::persist(arangodb::consensus::index_t index, term_t term,
   
   TRI_ASSERT(_vocbase != nullptr);
   auto transactionContext =
-    std::make_shared<StandaloneTransactionContext>(_vocbase);
+    std::make_shared<transaction::StandaloneContext>(_vocbase);
   SingleCollectionTransaction trx(
     transactionContext, "log", AccessMode::Type::WRITE);
   
@@ -478,14 +478,6 @@ bool State::createCollection(std::string const& name) {
   return true;
 }
 
-template <class T>
-std::ostream& operator<<(std::ostream& o, std::deque<T> const& d) {
-  for (auto const& i : d) {
-    o << i;
-  }
-  return o;
-}
-
 /// Load collections
 bool State::loadCollections(TRI_vocbase_t* vocbase,
                             QueryRegistry* queryRegistry, bool waitForSync) {
@@ -620,7 +612,7 @@ bool State::loadOrPersistConfiguration() {
     _agent->id(to_string(boost::uuids::random_generator()()));
 
     auto transactionContext =
-        std::make_shared<StandaloneTransactionContext>(_vocbase);
+        std::make_shared<transaction::StandaloneContext>(_vocbase);
     SingleCollectionTransaction trx(transactionContext, "configuration",
                                     AccessMode::Type::WRITE);
 
@@ -819,7 +811,7 @@ bool State::persistReadDB(arangodb::consensus::index_t cind) {
 
     TRI_ASSERT(_vocbase != nullptr);
     auto transactionContext =
-        std::make_shared<StandaloneTransactionContext>(_vocbase);
+        std::make_shared<transaction::StandaloneContext>(_vocbase);
     SingleCollectionTransaction trx(transactionContext, "compact",
                                     AccessMode::Type::WRITE);
 

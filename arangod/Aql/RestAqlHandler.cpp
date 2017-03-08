@@ -39,7 +39,7 @@
 #include "Scheduler/JobQueue.h"
 #include "Scheduler/SchedulerFeature.h"
 #include "Transaction/Methods.h"
-#include "Utils/TransactionContext.h"
+#include "Transaction/Context.h"
 #include "VocBase/ticks.h"
 
 #include <velocypack/Dumper.h>
@@ -875,7 +875,7 @@ void RestAqlHandler::handleUseQuery(std::string const& operation, Query* query,
 std::shared_ptr<VPackBuilder> RestAqlHandler::parseVelocyPackBody() {
   try {
     std::shared_ptr<VPackBuilder> body =
-        _request->toVelocyPackBuilderPtr(&VPackOptions::Defaults);
+        _request->toVelocyPackBuilderPtr();
     if (body == nullptr) {
       LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "cannot parse json object";
       generateError(rest::ResponseCode::BAD,
@@ -902,7 +902,7 @@ std::shared_ptr<VPackBuilder> RestAqlHandler::parseVelocyPackBody() {
 // Send slice as result with the given response type.
 void RestAqlHandler::sendResponse(
     rest::ResponseCode code, VPackSlice const slice,
-    TransactionContext* transactionContext) {
+    transaction::Context* transactionContext) {
   resetResponse(code);
   writeResult(slice, *(transactionContext->getVPackOptionsForDump()));
 }

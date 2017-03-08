@@ -74,6 +74,15 @@ if (DEBUG_SYNC_REPLICATION)
   add_definitions("-DDEBUG_SYNC_REPLICATION=1")
 endif ()
 
+# ------------------------------------------------------------------------------
+# user options
+# ------------------------------------------------------------------------------
+
+option(
+  USE_JEMALLOC
+  "use jemalloc memory allocator"
+  ON
+)
 
 # ------------------------------------------------------------------------------
 # VERSION information
@@ -553,6 +562,8 @@ add_subdirectory(3rdParty/rocksdb)
 add_definitions(-DARANGODB_ROCKSDB_VERSION=\"${ROCKSDB_VERSION}\")
 include_directories(${ROCKSDB_INCLUDE_DIR})
  
+set(ROCKSDB_LIBS rocksdblib_je;snappystatic)
+
 ################################################################################
 ## FLAGS
 ################################################################################

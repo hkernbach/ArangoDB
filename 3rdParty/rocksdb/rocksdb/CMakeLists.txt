@@ -742,9 +742,3 @@ endforeach(sourcefile ${EXES})
 #endforeach(sourcefile ${C_TEST_EXES})
 
 list(APPEND LINK_DIRECTORIES "${zlib_BINARY_DIR}")
-
-set(ROCKSDB_LIBS
-    "rocksdb"
-    CACHE INTERNAL
-    "${PROJECT_NAME}: Libraries"
-  )

@@ -86,11 +86,11 @@ endif ()
 #
 # Edit these 4 lines to define paths to Snappy
 #
-set(SNAPPY_HOME ${CMAKE_SOURCE_DIR}/3rdParty/snappy/google-snappy-d53de18/)
-set(SNAPPY_INCLUDE ${SNAPPY_HOME})
-list(APPEND SNAPPY_INCLUDE ${CMAKE_BINARY_DIR}/3rdParty/snappy/google-snappy-d53de18/)
-set(SNAPPY_LIB_DEBUG snappystatic)
-set(SNAPPY_LIB_RELEASE snappystatic)
+#set(SNAPPY_HOME ${CMAKE_SOURCE_DIR}/3rdParty/snappy/google-snappy-d53de18/)
+#set(SNAPPY_INCLUDE ${SNAPPY_HOME})
+#list(APPEND SNAPPY_INCLUDE ${CMAKE_BINARY_DIR}/3rdParty/snappy/google-snappy-d53de18/)
+#set(SNAPPY_LIB_DEBUG snappystatic)
+#set(SNAPPY_LIB_RELEASE snappystatic)
 
 #
 # Don't touch these lines

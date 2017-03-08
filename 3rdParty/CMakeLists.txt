@@ -111,16 +111,8 @@ set(CMAKE_USE_OPENSSL ON CACHE type BOOL)
 set(ENABLE_THREADED_RESOLVER ON CACHE type BOOL)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/curl/curl-7.50.3)
 
-################################################################################
-## ROCKSDB
-################################################################################
-
-if (${JEMALLOC_FOUND})
-#   set(USE_JEMALLOC_DEFAULT 1)
-endif()
 set(SKIP_INSTALL_ALL ON)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/snappy/google-snappy-d53de18)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/rocksdb)
 
 ################################################################################
 ## LINK_DIRECTORIES

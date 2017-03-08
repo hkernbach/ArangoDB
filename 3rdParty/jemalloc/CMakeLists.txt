@@ -1,21 +1,32 @@
-project(jemalloc)
+# -*- mode: CMAKE; -*-
 
-set(jemalloc_version "4.4.0")
+project(jemalloc C)
 
-set(install_suffix "")
-set(private_namespace "je_")
+set(JEMALLOC_VERSION "4.5.0")
+set(JEMALLOC_VERSION "${JEMALLOC_VERSION}" PARENT_SCOPE)
 
-configure_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/${jemalloc_version}/include/jemalloc/internal/jemalloc_internal.h.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/${jemalloc_version}/include/jemalloc/internal/jemalloc_internal.h"
-  NEWLINE_STYLE UNIX
+file(
+  COPY 
+    "${CMAKE_CURRENT_SOURCE_DIR}/${JEMALLOC_VERSION}"
+  DESTINATION
+    "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
-set(jemalloc_src "${CMAKE_CURRENT_SOURCE_DIR}/${jemalloc_version}")
-
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/${jemalloc_version}/include")
-include_directories("${CMAKE_CURRENT_BINARY_DIR}/${jemalloc_version}/include")
-
-add_library(jemalloc STATIC
-  ${jemalloc_src}/src/arena.c
+include(ExternalProject)
+ExternalProject_Add(
+  jemalloc
+  SOURCE_DIR
+    ${CMAKE_CURRENT_BINARY_DIR}/${JEMALLOC_VERSION}
+  PATCH_COMMAND
+    cmake -E touch
+      ${CMAKE_CURRENT_BINARY_DIR}/${JEMALLOC_VERSION}/doc/jemalloc.html
+      ${CMAKE_CURRENT_BINARY_DIR}/${JEMALLOC_VERSION}/doc/jemalloc.3
+  CONFIGURE_COMMAND
+    ./autogen.sh --prefix=${CMAKE_CURRENT_BINARY_DIR} --disable-munmap --with-version=${JEMALLOC_VERSION}-0-g0
+  PREFIX
+    ${CMAKE_CURRENT_BINARY_DIR}/${JEMALLOC_VERSION}
+  BUILD_COMMAND
+    make
+  BUILD_IN_SOURCE
+    1
 )

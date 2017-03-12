@@ -43,7 +43,8 @@ template <typename T>
 inline typename std::enable_if<std::is_signed<T>::value, T>::type toNumber(
     std::string const& value) {
   auto v = static_cast<int64_t>(std::stoll(value));
-  if (v < static_cast<int64_t>((std::numeric_limits<T>::min)()) || v > static_cast<int64_t>((std::numeric_limits<T>::max)())) {
+  if (v < static_cast<int64_t>((std::numeric_limits<T>::min)()) ||
+      v > static_cast<int64_t>((std::numeric_limits<T>::max)())) {
     throw std::out_of_range(value);
   }
   return static_cast<T>(v);
@@ -54,7 +55,8 @@ template <typename T>
 inline typename std::enable_if<std::is_unsigned<T>::value, T>::type toNumber(
     std::string const& value) {
   auto v = static_cast<uint64_t>(std::stoull(value));
-  if (v < static_cast<uint64_t>((std::numeric_limits<T>::min)()) || v > static_cast<uint64_t>((std::numeric_limits<T>::max)())) {
+  if (v < static_cast<uint64_t>((std::numeric_limits<T>::min)()) ||
+      v > static_cast<uint64_t>((std::numeric_limits<T>::max)())) {
     throw std::out_of_range(value);
   }
   return static_cast<T>(v);
@@ -75,8 +77,8 @@ typename std::enable_if<std::is_arithmetic<T>::value, T>::type fromString(
 
 // convert a string into another type, specialized version for string -> string
 template <typename T>
-typename std::enable_if<std::is_same<T, std::string>::value, T>::type fromString(
-    std::string const& value) {
+typename std::enable_if<std::is_same<T, std::string>::value, T>::type
+fromString(std::string const& value) {
   return value;
 }
 
@@ -137,7 +139,8 @@ struct BooleanParameter : public Parameter {
 
   std::string set(std::string const& value) override {
     if (!required && value.empty()) {
-      // the empty value "" is considered "true", e.g. "--force" will mean "--force true" 
+      // the empty value "" is considered "true", e.g. "--force" will mean
+      // "--force true"
       *ptr = true;
       return "";
     }
@@ -170,11 +173,14 @@ struct AtomicBooleanParameter : public Parameter {
 
   bool requiresValue() const override { return required; }
   std::string name() const override { return "boolean"; }
-  std::string valueString() const override { return stringifyValue(ptr->load()); }
+  std::string valueString() const override {
+    return stringifyValue(ptr->load());
+  }
 
   std::string set(std::string const& value) override {
     if (!required && value.empty()) {
-      // the empty value "" is considered "true", e.g. "--force" will mean "--force true" 
+      // the empty value "" is considered "true", e.g. "--force" will mean
+      // "--force true"
       *ptr = true;
       return "";
     }
@@ -337,10 +343,10 @@ struct StringParameter : public Parameter {
 // this templated type needs a concrete value type
 template <typename T>
 struct DiscreteValuesParameter : public T {
-  DiscreteValuesParameter(typename T::ValueType* ptr,
-                   std::unordered_set<typename T::ValueType> const& allowed)
+  DiscreteValuesParameter(
+      typename T::ValueType* ptr,
+      std::unordered_set<typename T::ValueType> const& allowed)
       : T(ptr), allowed(allowed) {
-
     if (allowed.find(*ptr) == allowed.end()) {
       // default value is not in list of allowed values
       std::string msg("invalid default value for DiscreteValues parameter: '");
@@ -364,7 +370,7 @@ struct DiscreteValuesParameter : public T {
 
     return T::set(value);
   }
-      
+
   std::string description() const override {
     std::string msg("possible values: ");
     std::vector<std::string> values;

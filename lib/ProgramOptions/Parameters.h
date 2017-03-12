@@ -41,37 +41,69 @@ namespace options {
 // convert a string into a number, base version for signed integer types
 template <typename T>
 inline typename std::enable_if<std::is_signed<T>::value, T>::type toNumber(
-    std::string const& value) {
+    std::string value) {
+  auto n = value.size();
+  int64_t m = 1;
+  if (n > 2) {
+    std::string suffix = value.substr(n - 2);
+
+    if (suffix == "kb" || suffix == "KB") {
+      m = 1024;
+      value = value.substr(0, n - 2);
+    } else if (suffix == "mb" || suffix == "MB") {
+      m = 1024 * 1024;
+      value = value.substr(0, n - 2);
+    } else if (suffix == "gb" || suffix == "GB") {
+      m = 1024 * 1024 * 1024;
+      value = value.substr(0, n - 2);
+    }
+  }
   auto v = static_cast<int64_t>(std::stoll(value));
   if (v < static_cast<int64_t>((std::numeric_limits<T>::min)()) ||
       v > static_cast<int64_t>((std::numeric_limits<T>::max)())) {
     throw std::out_of_range(value);
   }
-  return static_cast<T>(v);
+  return static_cast<T>(v * m);
 }
 
 // convert a string into a number, base version for unsigned integer types
 template <typename T>
 inline typename std::enable_if<std::is_unsigned<T>::value, T>::type toNumber(
-    std::string const& value) {
+    std::string value) {
+  auto n = value.size();
+  uint64_t m = 1;
+  if (n > 2) {
+    std::string suffix = value.substr(n - 2);
+
+    if (suffix == "kb" || suffix == "KB") {
+      m = 1024;
+      value = value.substr(0, n - 2);
+    } else if (suffix == "mb" || suffix == "MB") {
+      m = 1024 * 1024;
+      value = value.substr(0, n - 2);
+    } else if (suffix == "gb" || suffix == "GB") {
+      m = 1024 * 1024 * 1024;
+      value = value.substr(0, n - 2);
+    }
+  }
   auto v = static_cast<uint64_t>(std::stoull(value));
   if (v < static_cast<uint64_t>((std::numeric_limits<T>::min)()) ||
       v > static_cast<uint64_t>((std::numeric_limits<T>::max)())) {
     throw std::out_of_range(value);
   }
-  return static_cast<T>(v);
+  return static_cast<T>(v * m);
 }
 
 // convert a string into a number, version for double values
 template <>
-inline double toNumber<double>(std::string const& value) {
+inline double toNumber<double>(std::string value) {
   return std::stod(value);
 }
 
 // convert a string into another type, specialized version for numbers
 template <typename T>
 typename std::enable_if<std::is_arithmetic<T>::value, T>::type fromString(
-    std::string const& value) {
+    std::string value) {
   return toNumber<T>(value);
 }
 

@@ -32,15 +32,14 @@
 // //////////////////////////////////////////////////////////////////////////////
 
 (function () {
-  var internal = require('internal');
-  var console = require('console');
+  const internal = require('internal');
   global.UPGRADE_ARGS = {
     isCluster: true,
     isCoordinator: true,
     isRelaunch: false,
     upgrade: false
   };
-  var result = internal.loadStartup('server/upgrade-database.js');
+  let result = internal.loadStartup('server/upgrade-database.js');
   result = global.UPGRADE_STARTED && result;
   delete global.UPGRADE_STARTED;
   delete global.UPGRADE_ARGS;
@@ -48,8 +47,16 @@
   if (!result) {
     console.error('upgrade-database.js for cluster script failed!');
   }
-  internal.loadStartup('server/bootstrap/foxxes.js').foxxes();
+
   global.ArangoAgency.set('Current/Foxxmaster', global.ArangoServerState.id());
-  
+  require('@arangodb/foxx/manager')._startup(true);
+  require('@arangodb/tasks').register({
+    id: 'self-heal',
+    offset: 1,
+    command: function () {
+      require('@arangodb/foxx/manager')._selfHeal();
+    }
+  });
+
   return true;
 }());

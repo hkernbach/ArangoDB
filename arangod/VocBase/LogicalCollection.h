@@ -32,12 +32,7 @@
 
 #include <velocypack/Buffer.h>
 
-struct TRI_df_marker_t;
-
 namespace arangodb {
-namespace basics {
-class LocalTaskQueue;
-}
 
 namespace velocypack {
 class Slice;
@@ -49,7 +44,6 @@ typedef std::string CollectionID;  // ID of a collection
 typedef std::string ShardID;       // ID of a shard
 typedef std::unordered_map<ShardID, std::vector<ServerID>> ShardMap;
 
-struct DatafileStatisticsContainer;
 struct DocumentIdentifierToken;
 class FollowerInfo;
 class Index;
@@ -57,36 +51,11 @@ class IndexIterator;
 class ManagedDocumentResult;
 struct OperationOptions;
 class PhysicalCollection;
+class Result;
 class StringRef;
 namespace transaction {
 class Methods;
 }
-
-struct CollectionResult {
-  CollectionResult() : code(TRI_ERROR_NO_ERROR) {}
-
-  explicit CollectionResult(int code) : code(code) {
-    if (code != TRI_ERROR_NO_ERROR) {
-      errorMessage = TRI_errno_string(code);
-    }
-  }
-
-  CollectionResult(int code, std::string const& message)
-      : code(code), errorMessage(message) {
-    TRI_ASSERT(code != TRI_ERROR_NO_ERROR);
-  }
-
-  bool successful() const {
-    return code == TRI_ERROR_NO_ERROR;
-  }
-
-  bool failed() const { 
-    return !successful();
-  }
-
-  int code;
-  std::string errorMessage;
-};
 
 class LogicalCollection {
   friend struct ::TRI_vocbase_t;
@@ -140,6 +109,7 @@ class LogicalCollection {
   std::string cid_as_string() const;
 
   TRI_voc_cid_t planId() const;
+  std::string planId_as_string() const;
 
   TRI_col_type_e type() const;
 
@@ -179,7 +149,6 @@ class LogicalCollection {
   TRI_vocbase_col_status_e tryFetchStatus(bool&);
   std::string statusString() const;
 
-
   uint64_t numberDocuments() const;
 
   // SECTION: Properties
@@ -205,8 +174,6 @@ class LogicalCollection {
 
 
   // SECTION: Indexes
-  uint32_t indexBuckets() const;
-
   std::vector<std::shared_ptr<Index>> const& getIndexes() const;
 
   void getIndexesVPack(velocypack::Builder&, bool) const;
@@ -221,6 +188,8 @@ class LogicalCollection {
   virtual bool usesDefaultShardKeys() const;
   std::vector<std::string> const& shardKeys() const;
   std::shared_ptr<ShardMap> shardIds() const;
+  // return a filtered list of the collection's shards
+  std::shared_ptr<ShardMap> shardIds(std::unordered_set<std::string> const& includedShards) const;
   void setShardMap(std::shared_ptr<ShardMap>& map);
 
   /// @brief a method to skip certain documents in AQL write operations,
@@ -248,7 +217,7 @@ class LogicalCollection {
   inline TRI_vocbase_t* vocbase() const { return _vocbase; }
 
   // Update this collection.
-  virtual CollectionResult updateProperties(velocypack::Slice const&, bool);
+  virtual arangodb::Result updateProperties(velocypack::Slice const&, bool);
 
   /// @brief return the figures for a collection
   virtual std::shared_ptr<velocypack::Builder> figures();
@@ -274,11 +243,6 @@ class LogicalCollection {
 
   /// @brief Find index by iid
   std::shared_ptr<Index> lookupIndex(TRI_idx_iid_t) const;
-
-  // SECTION: Indexes (local only)
-
-  /// @brief Exposes a pointer to index list
-  std::vector<std::shared_ptr<Index>> const* indexList() const;
 
   bool dropIndex(TRI_idx_iid_t iid);
 
@@ -322,30 +286,29 @@ class LogicalCollection {
   ///        created and only on Sinlge/DBServer
   void persistPhysicalCollection();
 
+  basics::ReadWriteLock& lock() {
+    return _lock;
+  }
+
+  /// @brief Defer a callback to be executed when the collection
+  ///        can be dropped. The callback is supposed to drop
+  ///        the collection and it is guaranteed that no one is using
+  ///        it at that moment.
+  void deferDropCollection(std::function<bool(arangodb::LogicalCollection*)> callback);
+
  private:
-  // SECTION: Index creation
-
-  /// @brief creates the initial indexes for the collection
-  void createInitialIndexes();
-
- public:
-  // TODO Fix Visibility
-  bool removeIndex(TRI_idx_iid_t iid);
-
-  void addIndex(std::shared_ptr<Index>);
- private:
-  void addIndexCoordinator(std::shared_ptr<Index>, bool);
 
   // SECTION: Indexes (local only)
-
   // @brief create index with the given definition.
   bool openIndex(velocypack::Slice const&, transaction::Methods*);
 
-private:
   void increaseInternalVersion();
 
  protected:
+
   virtual void includeVelocyPackEnterprise(velocypack::Builder& result) const;
+
+ protected:
 
   // SECTION: Meta Information
   //
@@ -383,19 +346,13 @@ private:
 
   // SECTION: Properties
   bool _isLocal;
- public:
+
   bool _isDeleted;
- protected:
+
   bool const _isSystem;
 
   uint32_t _version;
   bool _waitForSync;
-
-
-  // SECTION: Indexes
-  uint32_t _indexBuckets;
-
-  std::vector<std::shared_ptr<Index>> _indexes;
 
   // SECTION: Replication
   size_t _replicationFactor;
@@ -410,13 +367,6 @@ private:
   std::shared_ptr<ShardMap> _shardIds;
 
   TRI_vocbase_t* _vocbase;
-
-  // SECTION: Local Only has to be moved to PhysicalCollection
- public:
-  // TODO MOVE ME
-  size_t _cleanupIndexes;
-  size_t _persistentIndexes;
- protected:
 
   std::unique_ptr<PhysicalCollection> _physical;
 

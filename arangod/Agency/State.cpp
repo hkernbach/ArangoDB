@@ -315,15 +315,15 @@ std::vector<log_t> State::get(arangodb::consensus::index_t start,
     return entries;
   }
 
-  if (end == (std::numeric_limits<uint64_t>::max)() || end > _log.back().index) {
-    end = _log.back().index;
+  if (end == (std::numeric_limits<uint64_t>::max)() || end > _log.size() - 1) {
+    end = _log.size() - 1;
   }
 
   if (start < _log[0].index) {
     start = _log[0].index;
   }
 
-  for (size_t i = start - _cur; i <= end - _cur; ++i) {
+  for (size_t i = start - _cur; i <= end; ++i) {
     entries.push_back(_log[i]);
   }
 
@@ -469,7 +469,7 @@ bool State::createCollection(std::string const& name) {
 
   TRI_voc_cid_t cid = 0;
   arangodb::LogicalCollection const* collection =
-      _vocbase->createCollection(body.slice(), cid, true);
+      _vocbase->createCollection(body.slice(), cid);
 
   if (collection == nullptr) {
     THROW_ARANGO_EXCEPTION_MESSAGE(TRI_errno(), "cannot create collection");

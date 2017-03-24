@@ -37,7 +37,6 @@ namespace transaction {
 class Methods;
 }
 
-struct CollectionResult;
 struct DocumentIdentifierToken;
 class Index;
 class IndexIterator;
@@ -45,6 +44,7 @@ class KeyGenerator;
 class LogicalCollection;
 class ManagedDocumentResult;
 struct OperationOptions;
+class Result;
 
 class PhysicalCollection {
  protected:
@@ -58,9 +58,9 @@ class PhysicalCollection {
   virtual std::string const& path() const = 0;
   virtual void setPath(std::string const&) = 0; // should be set during collection creation
                                                 // creation happens atm in engine->createCollection
-  virtual CollectionResult updateProperties(
+  virtual arangodb::Result updateProperties(
       arangodb::velocypack::Slice const& slice, bool doSync) = 0;
-  virtual int persistProperties() noexcept = 0;
+  virtual arangodb::Result persistProperties() noexcept = 0;
 
   virtual PhysicalCollection* clone(LogicalCollection*, PhysicalCollection*) = 0;
 
@@ -70,10 +70,11 @@ class PhysicalCollection {
 
   virtual void updateCount(int64_t) = 0;
 
-  virtual size_t journalSize() const = 0;
-  
   /// @brief export properties
   virtual void getPropertiesVPack(velocypack::Builder&) const = 0;
+
+  /// @brief return the figures for a collection
+  std::shared_ptr<velocypack::Builder> figures();
 
   void figures(std::shared_ptr<arangodb::velocypack::Builder>& builder);
   
@@ -105,14 +106,28 @@ class PhysicalCollection {
   virtual uint8_t const* lookupRevisionVPackConditional(TRI_voc_rid_t revisionId, TRI_voc_tick_t maxTick, bool excludeWal) const = 0;
 
   virtual bool isFullyCollected() const = 0;
-  virtual bool doCompact() const = 0;
+
+  void drop();
 
   ////////////////////////////////////
   // -- SECTION Indexes --
   ///////////////////////////////////
 
-  virtual int saveIndex(transaction::Methods* trx,
-                        std::shared_ptr<arangodb::Index> idx) = 0;
+  virtual void prepareIndexes(arangodb::velocypack::Slice indexesSlice) = 0;
+
+  /// @brief Find index by definition
+  virtual std::shared_ptr<Index> lookupIndex(velocypack::Slice const&) const = 0;
+
+  /// @brief Find index by iid
+  std::shared_ptr<Index> lookupIndex(TRI_idx_iid_t) const;
+
+  std::vector<std::shared_ptr<Index>> const& getIndexes() const;
+
+  void getIndexesVPack(velocypack::Builder&, bool) const;
+
+  virtual std::shared_ptr<Index> createIndex(
+      transaction::Methods* trx, arangodb::velocypack::Slice const& info,
+      bool& created) = 0;
 
   /// @brief Restores an index from VelocyPack.
   virtual int restoreIndex(transaction::Methods*, velocypack::Slice const&,
@@ -123,6 +138,7 @@ class PhysicalCollection {
   virtual std::unique_ptr<IndexIterator> getAllIterator(transaction::Methods* trx, ManagedDocumentResult* mdr, bool reverse) = 0;
   virtual std::unique_ptr<IndexIterator> getAnyIterator(transaction::Methods* trx, ManagedDocumentResult* mdr) = 0;
   virtual void invokeOnAllElements(std::function<bool(DocumentIdentifierToken const&)> callback) = 0;
+
   ////////////////////////////////////
   // -- SECTION DML Operations --
   ///////////////////////////////////
@@ -171,6 +187,12 @@ class PhysicalCollection {
                      TRI_voc_tick_t& resultMarkerTick, bool lock,
                      TRI_voc_rid_t const& revisionId, TRI_voc_rid_t& prevRev) = 0;
 
+  /// @brief Defer a callback to be executed when the collection
+  ///        can be dropped. The callback is supposed to drop
+  ///        the collection and it is guaranteed that no one is using
+  ///        it at that moment.
+  virtual void deferDropCollection(std::function<bool(LogicalCollection*)> callback) = 0;
+
   // Get a reference to this KeyGenerator.
   // Caller is not allowed to free it.
   inline KeyGenerator* keyGenerator() const {
@@ -180,7 +202,11 @@ class PhysicalCollection {
   // SECTION: Key Options
   velocypack::Slice keyOptions() const;
 
-
+  // SECTION: Has to be moved INTO MMFiles
+  virtual bool doCompact() const = 0;
+  virtual size_t journalSize() const = 0;
+  virtual uint32_t indexBuckets() const = 0;
+  
  protected:
 
   /// @brief Inject figures that are specific to StorageEngine
@@ -231,6 +257,7 @@ class PhysicalCollection {
   std::shared_ptr<velocypack::Buffer<uint8_t> const>
       _keyOptions;  // options for key creation
 
+  std::vector<std::shared_ptr<Index>> _indexes;
 
   std::unique_ptr<KeyGenerator> _keyGenerator;
 

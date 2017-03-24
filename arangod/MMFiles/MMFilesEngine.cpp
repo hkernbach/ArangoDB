@@ -38,11 +38,14 @@
 #include "MMFiles/MMFilesDatafile.h"
 #include "MMFiles/MMFilesDatafileHelper.h"
 #include "MMFiles/MMFilesIndexFactory.h"
+#include "MMFiles/MMFilesOptimizerRules.h"
 #include "MMFiles/MMFilesPersistentIndex.h"
 #include "MMFiles/MMFilesPersistentIndexFeature.h"
+#include "MMFiles/MMFilesRestHandlers.h"
 #include "MMFiles/MMFilesTransactionCollection.h"
 #include "MMFiles/MMFilesTransactionContextData.h"
 #include "MMFiles/MMFilesTransactionState.h"
+#include "MMFiles/MMFilesV8Functions.h"
 #include "Random/RandomGenerator.h"
 #include "RestServer/DatabaseFeature.h"
 #include "RestServer/DatabasePathFeature.h"
@@ -129,19 +132,16 @@ std::string const MMFilesEngine::FeatureName("MMFilesEngine");
 MMFilesEngine::MMFilesEngine(application_features::ApplicationServer* server)
     : StorageEngine(server, EngineName, FeatureName, new MMFilesIndexFactory())
     , _isUpgrade(false)
-    , _maxTick(0) 
-    {
-      startsAfter("PersistentIndex");
-    }
-
-MMFilesEngine::~MMFilesEngine() {
+    , _maxTick(0) { 
+      startsAfter("MMFilesPersistentIndex");
 }
 
+MMFilesEngine::~MMFilesEngine() {}
 
 // perform a physical deletion of the database
 void MMFilesEngine::dropDatabase(Database* database, int& status) {
   // delete persistent indexes for this database
-  PersistentIndexFeature::dropDatabase(database->id());
+  MMFilesPersistentIndexFeature::dropDatabase(database->id());
 
   // To shutdown the database (which destroys all LogicalCollection
   // objects of all collections) we need to make sure that the
@@ -381,7 +381,7 @@ void MMFilesEngine::getDatabases(arangodb::velocypack::Builder& result) {
       // delete persistent indexes for this database
       TRI_voc_tick_t id = static_cast<TRI_voc_tick_t>(
           basics::StringUtils::uint64(idSlice.copyString()));
-      PersistentIndexFeature::dropDatabase(id);
+      MMFilesPersistentIndexFeature::dropDatabase(id);
 
       dropDatabaseDirectory(directory);
       continue;
@@ -715,28 +715,104 @@ std::string MMFilesEngine::createCollection(TRI_vocbase_t* vocbase, TRI_voc_cid_
 
   return dirname;
 }
- 
+
+// asks the storage engine to persist the collection.
+// After this call the collection is persisted over recovery.
+// This call will write wal markers.
+arangodb::Result MMFilesEngine::persistCollection(
+    TRI_vocbase_t* vocbase, arangodb::LogicalCollection const* collection) {
+  TRI_ASSERT(collection != nullptr);
+  TRI_ASSERT(vocbase != nullptr);
+  if (inRecovery()) {
+    // Nothing to do. In recovery we do not write markers.
+    return {};
+  }
+  VPackBuilder builder = collection->toVelocyPackIgnore({"path", "statusString"}, true);
+  VPackSlice const slice = builder.slice();
+
+  auto cid = collection->cid();
+  TRI_ASSERT(cid != 0);
+  TRI_UpdateTickServer(static_cast<TRI_voc_tick_t>(cid));
+
+  int res = TRI_ERROR_NO_ERROR;
+
+  try {
+    MMFilesCollectionMarker marker(TRI_DF_MARKER_VPACK_CREATE_COLLECTION,
+                                   vocbase->id(), cid, slice);
+
+    MMFilesWalSlotInfoCopy slotInfo =
+        MMFilesLogfileManager::instance()->allocateAndWrite(marker, false);
+
+    if (slotInfo.errorCode != TRI_ERROR_NO_ERROR) {
+      THROW_ARANGO_EXCEPTION(slotInfo.errorCode);
+    }
+
+    return {};
+  } catch (arangodb::basics::Exception const& ex) {
+    res = ex.code();
+  } catch (...) {
+    res = TRI_ERROR_INTERNAL;
+  }
+
+  LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "could not save collection create marker in log: "
+            << TRI_errno_string(res);
+
+  return {res, TRI_errno_string(res)};
+}
+
 // asks the storage engine to drop the specified collection and persist the 
 // deletion info. Note that physical deletion of the collection data must not 
-// be carried out by this call, as there may still be readers of the collection's 
-// data. It is recommended that this operation
-// only sets a deletion flag for the collection but let's an async task perform
-// the actual deletion.
-// the WAL entry for collection deletion will be written *after* the call
-// to "dropCollection" returns
-void MMFilesEngine::prepareDropCollection(TRI_vocbase_t*, arangodb::LogicalCollection*) {
-  // nothing to do here
+// be carried out by this call, as there may
+// still be readers of the collection's data.
+// This call will write the WAL entry for collection deletion
+arangodb::Result MMFilesEngine::dropCollection(
+    TRI_vocbase_t* vocbase, arangodb::LogicalCollection* collection) {
+  if (inRecovery()) {
+    // nothing to do here
+    return {};
+  }
+  int res = TRI_ERROR_NO_ERROR;
+
+  try {
+    VPackBuilder builder;
+    builder.openObject();
+    builder.add("id", VPackValue(collection->cid_as_string()));
+    builder.add("name", VPackValue(collection->name()));
+    builder.close();
+
+    MMFilesCollectionMarker marker(TRI_DF_MARKER_VPACK_DROP_COLLECTION, vocbase->id(), collection->cid(), builder.slice());
+
+    MMFilesWalSlotInfoCopy slotInfo =
+        MMFilesLogfileManager::instance()->allocateAndWrite(marker, false);
+
+    if (slotInfo.errorCode != TRI_ERROR_NO_ERROR) {
+      THROW_ARANGO_EXCEPTION(slotInfo.errorCode);
+    }
+  } catch (arangodb::basics::Exception const& ex) {
+    res = ex.code();
+  } catch (...) {
+    res = TRI_ERROR_INTERNAL;
+  }
+
+  if (res != TRI_ERROR_NO_ERROR) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "could not save collection drop marker in log: "
+              << TRI_errno_string(res);
+  }
+
+  return {res, TRI_errno_string(res)};
 }
 
 // perform a physical deletion of the collection
-void MMFilesEngine::dropCollection(TRI_vocbase_t* vocbase, arangodb::LogicalCollection* collection) {
+// After this call data of this collection is corrupted, only perform if
+// assured that no one is using the collection anymore
+void MMFilesEngine::destroyCollection(TRI_vocbase_t* vocbase, arangodb::LogicalCollection* collection) {
   std::string const name(collection->name());
   auto physical = static_cast<MMFilesCollection*>(collection->getPhysical());
   TRI_ASSERT(physical != nullptr);
   unregisterCollectionPath(vocbase->id(), collection->cid());
   
   // delete persistent indexes    
-  PersistentIndexFeature::dropCollection(vocbase->id(), collection->cid());
+  MMFilesPersistentIndexFeature::dropCollection(vocbase->id(), collection->cid());
 
   // rename collection directory
   if (physical->path().empty()) {
@@ -829,6 +905,47 @@ void MMFilesEngine::changeCollection(TRI_vocbase_t* vocbase, TRI_voc_cid_t id,
   saveCollectionInfo(vocbase, id, parameters, doSync);
 }
 
+// asks the storage engine to persist renaming of a collection
+// This will write a renameMarker if not in recovery
+Result MMFilesEngine::renameCollection(
+    TRI_vocbase_t* vocbase, arangodb::LogicalCollection const* collection,
+    std::string const& oldName) {
+  if (inRecovery()) {
+    // Nothing todo. Marker already there
+    return {};
+  }
+  int res = TRI_ERROR_NO_ERROR;
+  try {
+    VPackBuilder builder;
+    builder.openObject();
+    builder.add("id", VPackValue(collection->cid_as_string()));
+    builder.add("oldName", VPackValue(oldName));
+    builder.add("name", VPackValue(collection->name()));
+    builder.close();
+
+    MMFilesCollectionMarker marker(TRI_DF_MARKER_VPACK_RENAME_COLLECTION, vocbase->id(), collection->cid(), builder.slice());
+
+    MMFilesWalSlotInfoCopy slotInfo =
+        MMFilesLogfileManager::instance()->allocateAndWrite(marker, false);
+
+    if (slotInfo.errorCode != TRI_ERROR_NO_ERROR) {
+      THROW_ARANGO_EXCEPTION(slotInfo.errorCode);
+    }
+
+    res = TRI_ERROR_NO_ERROR;
+  } catch (arangodb::basics::Exception const& ex) {
+    res = ex.code();
+  } catch (...) {
+    res = TRI_ERROR_INTERNAL;
+  }
+
+  if (res != TRI_ERROR_NO_ERROR) {
+    LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "could not save collection rename marker in log: "
+              << TRI_errno_string(res);
+  }
+  return {res, TRI_errno_string(res)};
+}
+
 // asks the storage engine to create an index as specified in the VPack
 // Slice object and persist the creation info. The database id, collection id 
 // and index data are passed in the Slice object. Note that this function
@@ -894,8 +1011,57 @@ void MMFilesEngine::dropIndexWalMarker(TRI_vocbase_t* vocbase, TRI_voc_cid_t col
   }
 };
 
+
+/// @brief callback for unloading a collection
+static bool UnloadCollectionCallback(LogicalCollection* collection) {
+  TRI_ASSERT(collection != nullptr);
+
   
-void MMFilesEngine::unloadCollection(TRI_vocbase_t* vocbase, TRI_voc_cid_t collectionId) {
+  WRITE_LOCKER_EVENTUAL(locker, collection->lock());
+
+  if (collection->status() != TRI_VOC_COL_STATUS_UNLOADING) {
+    return false;
+  }
+
+  auto ditches =
+      arangodb::MMFilesCollection::toMMFilesCollection(collection)->ditches();
+
+  if (ditches->contains(arangodb::MMFilesDitch::TRI_DITCH_DOCUMENT) ||
+      ditches->contains(arangodb::MMFilesDitch::TRI_DITCH_REPLICATION) ||
+      ditches->contains(arangodb::MMFilesDitch::TRI_DITCH_COMPACTION)) {
+    locker.unlock();
+
+    // still some ditches left...
+    // as the cleanup thread has already popped the unload ditch from the
+    // ditches list,
+    // we need to insert a new one to really execute the unload
+    collection->vocbase()->unloadCollection(collection, false);
+    return false;
+  }
+
+  int res = collection->close();
+
+  if (res != TRI_ERROR_NO_ERROR) {
+    std::string const colName(collection->name());
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "failed to close collection '" << colName
+             << "': " << res;
+
+    collection->setStatus(TRI_VOC_COL_STATUS_CORRUPTED);
+    return true;
+  }
+
+  collection->setStatus(TRI_VOC_COL_STATUS_UNLOADED);
+
+  return true;
+}
+
+void MMFilesEngine::unloadCollection(TRI_vocbase_t* vocbase, LogicalCollection* collection) {
+  // add callback for unload
+  arangodb::MMFilesCollection::toMMFilesCollection(collection)
+      ->ditches()
+      ->createMMFilesUnloadCollectionDitch(collection, UnloadCollectionCallback,
+                                    __FILE__, __LINE__);
+ 
   signalCleanup(vocbase);
 }
 
@@ -2127,9 +2293,24 @@ int MMFilesEngine::transferMarkers(LogicalCollection* collection,
   return res;
 }
 
-/// @brief Add engine specific AQL functions.
-void MMFilesEngine::addAqlFunctions() const {
-  aql::MMFilesAqlFunctions::RegisterFunctions();
+/// @brief Add engine-specific AQL functions.
+void MMFilesEngine::addAqlFunctions() {
+  MMFilesAqlFunctions::registerResources();
+}
+
+/// @brief Add engine-specific optimizer rules
+void MMFilesEngine::addOptimizerRules() {
+  MMFilesOptimizerRules::registerResources();
+}
+
+/// @brief Add engine-specific V8 functions
+void MMFilesEngine::addV8Functions() {
+  MMFilesV8Functions::registerResources();
+}
+
+/// @brief Add engine-specific REST handlers
+void MMFilesEngine::addRestHandlers(rest::RestHandlerFactory* handlerFactory) {
+  MMFilesRestHandlers::registerResources(handlerFactory);
 }
 
 /// @brief transfer markers into a collection, actual work

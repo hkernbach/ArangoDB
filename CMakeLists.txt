@@ -4,7 +4,7 @@
 # General
 # ------------------------------------------------------------------------------
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.2)
 
 if (POLICY CMP0037)
   cmake_policy(SET CMP0037 NEW)
@@ -31,7 +31,7 @@ if (NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"
   message(FATAL_ERROR "expecting CMAKE_BUILD_TYPE: None Debug Release RelWithDebInfo MinSizeRel, got ${CMAKE_BUILD_TYPE}.")
 endif ()
 
-if (CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
+if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "10.11" CACHE STRING "deployment target for MacOSX; adjust to your sysem")
 endif ()
 
@@ -397,7 +397,7 @@ endif ()
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/linenoise-ng/include)
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/linenoise-ng/src)
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/velocypack/include)
-include_directories(${PROJECT_SOURCE_DIR}/3rdParty/rocksdb/rocksdb/include)
+include_directories(${PROJECT_SOURCE_DIR}/3rdParty/rocksdb/v5.1.4/include)
 
 include_directories(${PROJECT_BINARY_DIR})
 include_directories(${PROJECT_BINARY_DIR}/lib)
@@ -545,8 +545,6 @@ if (USE_JEMALLOC)
   add_subdirectory(3rdParty/jemalloc)
   add_definitions("-DARANGODB_HAVE_JEMALLOC=1")
 
-  set(JEMALLOC_HOME "${CMAKE_CURRENT_BINARY_DIR}/3rdParty/jemalloc/${JEMALLOC_VERSION}")
-
   include_directories("${JEMALLOC_HOME}/include")
   link_directories("${JEMALLOC_HOME}/lib")
 
@@ -562,7 +560,7 @@ add_subdirectory(3rdParty/rocksdb)
 add_definitions(-DARANGODB_ROCKSDB_VERSION=\"${ROCKSDB_VERSION}\")
 include_directories(${ROCKSDB_INCLUDE_DIR})
  
-set(ROCKSDB_LIBS rocksdblib_je;snappystatic)
+set(ROCKSDB_LIBS rocksdblib;snappystatic)
 
 ################################################################################
 ## FLAGS
@@ -770,7 +768,7 @@ endif ()
 ################################################################################
 
 include_directories(${V8_INCLUDE_DIR})
-add_definitions("-DARANGODB_V8_VERSION=\"5.7.0.0\"")
+add_definitions("-DARANGODB_V8_VERSION=\"${V8_VERSION}\"")
 
 ################################################################################
 ## ZLIB

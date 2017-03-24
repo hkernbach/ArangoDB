@@ -35,6 +35,7 @@
 #include "ApplicationFeatures/LanguageFeature.h"
 #include "ApplicationFeatures/NonceFeature.h"
 #include "ApplicationFeatures/PageSizeFeature.h"
+#include "Pregel/PregelFeature.h"
 #include "ApplicationFeatures/PrivilegeFeature.h"
 #include "ApplicationFeatures/ShutdownFeature.h"
 #include "ApplicationFeatures/SupervisorFeature.h"
@@ -42,6 +43,7 @@
 #include "ApplicationFeatures/V8PlatformFeature.h"
 #include "ApplicationFeatures/VersionFeature.h"
 #include "Aql/AqlFunctionFeature.h"
+#include "Aql/OptimizerRulesFeature.h"
 #include "Basics/ArangoGlobalContext.h"
 #include "Cache/CacheManagerFeature.h"
 #include "Cluster/ClusterFeature.h"
@@ -78,16 +80,12 @@
 #include "Statistics/StatisticsFeature.h"
 #include "StorageEngine/EngineSelectorFeature.h"
 
-// TODO - the following MMFiles includes should probably be removed
+// TODO - move the following MMFiles includes to the storage engine
 #include "MMFiles/MMFilesLogfileManager.h"
 #include "MMFiles/MMFilesPersistentIndexFeature.h"
 #include "MMFiles/MMFilesWalRecoveryFeature.h"
-
-// #include "StorageEngine/RocksDBEngine.h" // enable when adding Rocksdb Engine
-// this include will be disabled until
-// we begin to implement the RocksDB
-// engine
 #include "MMFiles/MMFilesEngine.h"
+
 #include "V8Server/FoxxQueuesFeature.h"
 #include "V8Server/V8DealerFeature.h"
 
@@ -129,6 +127,7 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new ActionFeature(&server));
     server.addFeature(new AgencyFeature(&server));
     server.addFeature(new aql::AqlFunctionFeature(&server));
+    server.addFeature(new aql::OptimizerRulesFeature(&server));
     server.addFeature(new AuthenticationFeature(&server));
     server.addFeature(new AqlFeature(&server));
     server.addFeature(new BootstrapFeature(&server));
@@ -152,16 +151,14 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new JemallocFeature(&server));
     server.addFeature(new LanguageFeature(&server));
     server.addFeature(new LockfileFeature(&server));
-    server.addFeature(new MMFilesLogfileManager(&server));
     server.addFeature(new LoggerBufferFeature(&server));
     server.addFeature(new LoggerFeature(&server, true));
     server.addFeature(new NonceFeature(&server));
     server.addFeature(new PageSizeFeature(&server));
+    server.addFeature(new pregel::PregelFeature(&server));
     server.addFeature(new PrivilegeFeature(&server));
-    server.addFeature(new QueryRegistryFeature(&server));
-    server.addFeature(new TraverserEngineRegistryFeature(&server));
     server.addFeature(new RandomFeature(&server));
-    server.addFeature(new PersistentIndexFeature(&server));
+    server.addFeature(new QueryRegistryFeature(&server));
     server.addFeature(new SchedulerFeature(&server));
     server.addFeature(new ScriptFeature(&server, &ret));
     server.addFeature(new ServerFeature(&server, &ret));
@@ -171,6 +168,7 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new StatisticsFeature(&server));
     server.addFeature(new TempFeature(&server, name));
     server.addFeature(new TransactionManagerFeature(&server));
+    server.addFeature(new TraverserEngineRegistryFeature(&server));
     server.addFeature(new UnitTestsFeature(&server, &ret));
     server.addFeature(new UpgradeFeature(&server, &ret, nonServerFeatures));
     server.addFeature(new V8DealerFeature(&server));
@@ -196,8 +194,8 @@ static int runServer(int argc, char** argv) {
     // storage engines
     server.addFeature(new MMFilesEngine(&server));
     server.addFeature(new MMFilesWalRecoveryFeature(&server));
-    // server.addFeature(new RocksDBEngine(&server)); //enable RocksDB storage
-    // here
+    server.addFeature(new MMFilesLogfileManager(&server));
+    server.addFeature(new MMFilesPersistentIndexFeature(&server));
 
     try {
       server.run(argc, argv);

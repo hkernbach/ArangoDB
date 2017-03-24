@@ -142,6 +142,7 @@ SET(ARANGOD_SOURCES
   Aql/NodeFinder.cpp
   Aql/Optimizer.cpp
   Aql/OptimizerRules.cpp
+  Aql/OptimizerRulesFeature.cpp
   Aql/Parser.cpp
   Aql/PlanCache.cpp
   Aql/QueryExecutionState.cpp
@@ -175,6 +176,7 @@ SET(ARANGOD_SOURCES
   Cache/CacheManagerFeature.cpp
   Cache/CacheManagerFeatureThreads.cpp
   Cache/CachedValue.cpp
+  Cache/Finding.cpp
   Cache/Manager.cpp
   Cache/ManagerTasks.cpp
   Cache/Metadata.cpp
@@ -182,6 +184,7 @@ SET(ARANGOD_SOURCES
   Cache/PlainCache.cpp
   Cache/Rebalancer.cpp
   Cache/State.cpp
+  Cache/Table.cpp
   Cache/Transaction.cpp
   Cache/TransactionalBucket.cpp
   Cache/TransactionalCache.cpp
@@ -219,47 +222,6 @@ SET(ARANGOD_SOURCES
   Indexes/IndexIterator.cpp
   Indexes/SimpleAttributeEqualityMatcher.cpp
   InternalRestHandler/InternalRestTraverserHandler.cpp
-  MMFiles/fulltext-handles.cpp
-  MMFiles/fulltext-index.cpp
-  MMFiles/fulltext-list.cpp
-  MMFiles/fulltext-query.cpp
-  MMFiles/fulltext-result.cpp
-  MMFiles/geo-index.cpp
-  MMFiles/MMFilesAllocatorThread.cpp
-  MMFiles/MMFilesAqlFunctions.cpp
-  MMFiles/MMFilesCleanupThread.cpp
-  MMFiles/MMFilesCollection.cpp
-  MMFiles/MMFilesCollectorThread.cpp
-  MMFiles/MMFilesCompactorThread.cpp
-  MMFiles/MMFilesDatafile.cpp
-  MMFiles/MMFilesDatafileStatistics.cpp
-  MMFiles/MMFilesDitch.cpp
-  MMFiles/MMFilesDocumentOperation.cpp
-  MMFiles/MMFilesEdgeIndex.cpp
-  MMFiles/MMFilesEngine.cpp
-  MMFiles/MMFilesIndexElement.cpp
-  MMFiles/MMFilesIndexFactory.cpp
-  MMFiles/MMFilesLogfileManager.cpp
-  MMFiles/MMFilesFulltextIndex.cpp
-  MMFiles/MMFilesGeoIndex.cpp
-  MMFiles/MMFilesHashIndex.cpp
-  MMFiles/MMFilesPathBasedIndex.cpp
-  MMFiles/MMFilesPersistentIndexFeature.cpp
-  MMFiles/MMFilesPersistentIndex.cpp
-  MMFiles/MMFilesPersistentIndexKeyComparator.cpp
-  MMFiles/MMFilesPrimaryIndex.cpp
-  MMFiles/MMFilesRemoverThread.cpp
-  MMFiles/MMFilesRevisionsCache.cpp
-  MMFiles/MMFilesSkiplistIndex.cpp
-  MMFiles/MMFilesSynchronizerThread.cpp
-  MMFiles/MMFilesTransactionCollection.cpp
-  MMFiles/MMFilesTransactionContextData.cpp
-  MMFiles/MMFilesTransactionState.cpp
-  MMFiles/MMFilesWalLogfile.cpp
-  MMFiles/MMFilesWalRecoverState.cpp
-  MMFiles/MMFilesWalRecoveryFeature.cpp
-  MMFiles/MMFilesWalSlot.cpp
-  MMFiles/MMFilesWalSlots.cpp
   Replication/ContinuousSyncer.cpp
   Replication/InitialSyncer.cpp
   Replication/Syncer.cpp
@@ -287,7 +249,7 @@ SET(ARANGOD_SOURCES
   RestHandler/RestUploadHandler.cpp
   RestHandler/RestVersionHandler.cpp
   RestHandler/RestVocbaseBaseHandler.cpp
-  RestHandler/RestWalHandler.cpp
+  RestHandler/RestPregelHandler.cpp
   RestHandler/WorkMonitorHandler.cpp
   RestServer/AqlFeature.cpp
   RestServer/BootstrapFeature.cpp
@@ -379,7 +341,82 @@ SET(ARANGOD_SOURCES
   VocBase/replication-dump.cpp
   VocBase/ticks.cpp
   VocBase/vocbase.cpp
+  Pregel/AggregatorHandler.cpp
+  Pregel/AlgoRegistry.cpp
+  Pregel/Algos/SSSP.cpp
+  Pregel/Algos/ShortestPath.cpp
+  Pregel/Algos/PageRank.cpp
+  Pregel/Algos/RecoveringPageRank.cpp
+  Pregel/Algos/LineRank.cpp
+  Pregel/Algos/ConnectedComponents.cpp
+  Pregel/Algos/SCC.cpp
+  Pregel/Algos/AsyncSCC.cpp
+  Pregel/Algos/HITS.cpp
+  Pregel/Algos/LabelPropagation.cpp
+  Pregel/Algos/DMID/DMID.cpp
+  Pregel/Algos/EffectiveCloseness/EffectiveCloseness.cpp
+  Pregel/Algos/EffectiveCloseness/HLLCounter.cpp
+  Pregel/Conductor.cpp
+  Pregel/GraphStore.cpp
+  Pregel/IncomingCache.cpp
+  Pregel/OutgoingCache.cpp
+  Pregel/PregelFeature.cpp
+  Pregel/Utils.cpp
+  Pregel/Recovery.cpp
+  Pregel/ThreadPool.cpp
+  Pregel/Worker.cpp
+  Pregel/WorkerConfig.cpp
   ${ADDITIONAL_BIN_ARANGOD_SOURCES}
+)
+
+# add sources for mmfiles engine
+set(ARANGOD_SOURCES
+  ${ARANGOD_SOURCES}
+  MMFiles/fulltext-handles.cpp
+  MMFiles/fulltext-index.cpp
+  MMFiles/fulltext-list.cpp
+  MMFiles/fulltext-query.cpp
+  MMFiles/fulltext-result.cpp
+  MMFiles/geo-index.cpp
+  MMFiles/MMFilesAllocatorThread.cpp
+  MMFiles/MMFilesAqlFunctions.cpp
+  MMFiles/MMFilesCleanupThread.cpp
+  MMFiles/MMFilesCollection.cpp
+  MMFiles/MMFilesCollectorThread.cpp
+  MMFiles/MMFilesCompactorThread.cpp
+  MMFiles/MMFilesDatafile.cpp
+  MMFiles/MMFilesDatafileStatistics.cpp
+  MMFiles/MMFilesDitch.cpp
+  MMFiles/MMFilesDocumentOperation.cpp
+  MMFiles/MMFilesEdgeIndex.cpp
+  MMFiles/MMFilesEngine.cpp
+  MMFiles/MMFilesIndexElement.cpp
+  MMFiles/MMFilesIndexFactory.cpp
+  MMFiles/MMFilesLogfileManager.cpp
+  MMFiles/MMFilesFulltextIndex.cpp
+  MMFiles/MMFilesGeoIndex.cpp
+  MMFiles/MMFilesHashIndex.cpp
+  MMFiles/MMFilesOptimizerRules.cpp
+  MMFiles/MMFilesPathBasedIndex.cpp
+  MMFiles/MMFilesPersistentIndexFeature.cpp
+  MMFiles/MMFilesPersistentIndex.cpp
+  MMFiles/MMFilesPersistentIndexKeyComparator.cpp
+  MMFiles/MMFilesPrimaryIndex.cpp
+  MMFiles/MMFilesRemoverThread.cpp
+  MMFiles/MMFilesRestHandlers.cpp
+  MMFiles/MMFilesRestWalHandler.cpp
+  MMFiles/MMFilesRevisionsCache.cpp
+  MMFiles/MMFilesSkiplistIndex.cpp
+  MMFiles/MMFilesSynchronizerThread.cpp
+  MMFiles/MMFilesTransactionCollection.cpp
+  MMFiles/MMFilesTransactionContextData.cpp
+  MMFiles/MMFilesTransactionState.cpp
+  MMFiles/MMFilesV8Functions.cpp
+  MMFiles/MMFilesWalLogfile.cpp
+  MMFiles/MMFilesWalRecoverState.cpp
+  MMFiles/MMFilesWalRecoveryFeature.cpp
+  MMFiles/MMFilesWalSlot.cpp
+  MMFiles/MMFilesWalSlots.cpp
 )
 
 if (NOT MSVC)

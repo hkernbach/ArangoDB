@@ -257,8 +257,8 @@ struct TRI_vocbase_t {
     bool, std::function<bool(arangodb::LogicalCollection*, arangodb::LogicalCollection*)>);
 
   /// @brief renames a collection
-  int renameCollection(arangodb::LogicalCollection* collection, std::string const& newName,
-                       bool doOverride, bool writeMarker);
+  int renameCollection(arangodb::LogicalCollection* collection,
+                       std::string const& newName, bool doOverride);
 
   /// @brief creates a new collection from parameter set
   /// collection id (cid) is normally passed with a value of 0
@@ -266,11 +266,10 @@ struct TRI_vocbase_t {
   /// using a cid of > 0 is supported to import dumps from other servers etc.
   /// but the functionality is not advertised
   arangodb::LogicalCollection* createCollection(
-      arangodb::velocypack::Slice parameters, TRI_voc_cid_t cid,
-      bool writeMarker);
+      arangodb::velocypack::Slice parameters, TRI_voc_cid_t cid);
 
   /// @brief drops a collection
-  int dropCollection(arangodb::LogicalCollection* collection, bool allowDropSystem, bool writeMarker);
+  int dropCollection(arangodb::LogicalCollection* collection, bool allowDropSystem);
 
   /// @brief callback for collection dropping
   static bool DropCollectionCallback(arangodb::LogicalCollection* collection);
@@ -278,9 +277,6 @@ struct TRI_vocbase_t {
   /// @brief unloads a collection
   int unloadCollection(arangodb::LogicalCollection* collection, bool force);
   
-  /// @brief callback for unloading a collection
-  static bool UnloadCollectionCallback(arangodb::LogicalCollection* collection);
-
   /// @brief locks a collection for usage, loading or manifesting it
   /// Note that this will READ lock the collection you have to release the
   /// collection lock by yourself.
@@ -323,11 +319,7 @@ struct TRI_vocbase_t {
 
   /// @brief drops a collection, worker function
   int dropCollectionWorker(arangodb::LogicalCollection* collection,
-                           bool writeMarker, DropState& state);
-
-  /// @brief write a drop collection marker into the log
-  int writeDropCollectionMarker(TRI_voc_cid_t collectionId,
-                                std::string const& name);
+                           DropState& state);
 };
 
 // scope guard for a database

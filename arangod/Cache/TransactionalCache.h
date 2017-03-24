@@ -27,11 +27,14 @@
 #include "Basics/Common.h"
 #include "Cache/Cache.h"
 #include "Cache/CachedValue.h"
+#include "Cache/Common.h"
+#include "Cache/Finding.h"
 #include "Cache/FrequencyBuffer.h"
 #include "Cache/Manager.h"
 #include "Cache/ManagerTasks.h"
 #include "Cache/Metadata.h"
 #include "Cache/State.h"
+#include "Cache/Table.h"
 #include "Cache/TransactionalBucket.h"
 
 #include <stdint.h>
@@ -60,7 +63,7 @@ namespace cache {
 class TransactionalCache final : public Cache {
  public:
   TransactionalCache(Cache::ConstructionGuard guard, Manager* manager,
-                     Manager::MetadataItr metadata, bool allowGrowth,
+                     Metadata metadata, std::shared_ptr<Table> table,
                      bool enableWindowedStats);
   ~TransactionalCache();
 
@@ -75,7 +78,7 @@ class TransactionalCache final : public Cache {
   /// May report a false negative if it fails to acquire a lock in a timely
   /// fashion. Should not block for long.
   //////////////////////////////////////////////////////////////////////////////
-  Cache::Finding find(void const* key, uint32_t keySize);
+  Finding find(void const* key, uint32_t keySize);
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Attempts to insert the given value.
@@ -111,20 +114,6 @@ class TransactionalCache final : public Cache {
   bool blacklist(void const* key, uint32_t keySize);
 
  private:
-  // main table info
-  TransactionalBucket* _table;
-  uint32_t _logSize;
-  uint64_t _tableSize;
-  uint32_t _maskShift;
-  uint32_t _bucketMask;
-
-  // auxiliary table info
-  TransactionalBucket* _auxiliaryTable;
-  uint32_t _auxiliaryLogSize;
-  uint64_t _auxiliaryTableSize;
-  uint32_t _auxiliaryMaskShift;
-  uint32_t _auxiliaryBucketMask;
-
   // friend class manager and tasks
   friend class FreeMemoryTask;
   friend class Manager;
@@ -132,21 +121,21 @@ class TransactionalCache final : public Cache {
 
  private:
   static uint64_t allocationSize(bool enableWindowedStats);
-  static std::shared_ptr<Cache> create(Manager* manager,
-                                       Manager::MetadataItr metadata,
-                                       bool allowGrowth,
+  static std::shared_ptr<Cache> create(Manager* manager, Metadata metadata,
+                                       std::shared_ptr<Table> table,
                                        bool enableWindowedStats);
-  // management
-  bool freeMemory();
-  bool migrate();
-  void clearTables();
+
+  virtual uint64_t freeMemoryFrom(uint32_t hash);
+  virtual void migrateBucket(void* sourcePtr,
+                             std::unique_ptr<Table::Subtable> targets,
+                             std::shared_ptr<Table> newTable);
 
   // helpers
-  std::pair<bool, TransactionalBucket*> getBucket(uint32_t hash,
-                                                  int64_t maxTries,
-                                                  bool singleOperation = true);
-  void clearTable(TransactionalBucket* table, uint64_t tableSize);
+  std::tuple<bool, TransactionalBucket*, std::shared_ptr<Table>> getBucket(
+      uint32_t hash, int64_t maxTries, bool singleOperation = true);
   uint32_t getIndex(uint32_t hash, bool useAuxiliary) const;
+
+  static Table::BucketClearer bucketClearer(Metadata* metadata);
 };
 
 };  // end namespace cache

@@ -1252,7 +1252,7 @@ int RestReplicationHandler::createCollection(VPackSlice slice,
   VPackBuilder builder = VPackCollection::merge(slice, patch.slice(), false);
   slice = builder.slice();
 
-  col = _vocbase->createCollection(slice, cid, true);
+  col = _vocbase->createCollection(slice, cid);
 
   if (col == nullptr) {
     return TRI_ERROR_INTERNAL;
@@ -1272,10 +1272,6 @@ int RestReplicationHandler::createCollection(VPackSlice slice,
               "Database")
               ->waitForSync()));
   TRI_ASSERT(col->isSystem() == (name[0] == '_'));
-  TRI_ASSERT(
-      col->indexBuckets() ==
-      arangodb::basics::VelocyPackHelper::getNumericValue<uint32_t>(
-          slice, "indexBuckets", DatabaseFeature::defaultIndexBuckets()));
 #ifdef ARANGODB_ENABLE_MAINTAINER_MODE
   TRI_voc_cid_t planId = 0;
   VPackSlice const planIdSlice = slice.get("planId");
@@ -1487,7 +1483,7 @@ int RestReplicationHandler::processRestoreCollection(
   // drop an existing collection if it exists
   if (col != nullptr) {
     if (dropExisting) {
-      int res = _vocbase->dropCollection(col, true, true);
+      int res = _vocbase->dropCollection(col, true);
 
       if (res == TRI_ERROR_FORBIDDEN) {
         // some collections must not be dropped

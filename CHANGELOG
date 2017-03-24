@@ -1,6 +1,16 @@
 devel
 -----
 
+* increase default collection lock timeout from 30 to 900 seconds
+
+* added function `db._engine()` for retrieval of storage engine information at
+  server runtime
+
+  There is also an HTTP REST handler at GET /_api/engine that returns engine
+  information.
+
+* require at least cmake 3.2 for building ArangoDB
+
 * make arangod start with less V8 JavaScript contexts
 
   This speeds up the server start (a little bit) and makes it use less memory.
@@ -26,6 +36,9 @@ devel
   and `--javascript.v8-contexts` to a relatively high value, which will guarantee
   that many number of V8 contexts to be created at startup and kept around even
   when unused.
+
+  Waiting for an unused V8 context will now also abort if no V8 context can be 
+  acquired/created after 120 seconds.
 
 * improved diagnostic messages written to logfiles by supervisor process
 
@@ -83,6 +96,7 @@ devel
 
 * arangoimp: fixed issue #2214
 
+
 v3.2.alpha2 (2017-02-20)
 ------------------------
 
@@ -97,13 +111,6 @@ v3.2.alpha2 (2017-02-20)
   * PUT _api/edges
 
   The documented GET _api/edges and the undocumented POST _api/edges remains unmodified.
-
-* moved V8 code into a git submodule
-  this requires running the command
-
-      git submodule update --init --recursive
-
-  once after a source code update or fresh checkout
 
 * updated V8 version to 5.7.0.0
 
@@ -150,15 +157,46 @@ v3.2.alpha1 (2017-02-05)
 
 * generated Foxx services now use swagger tags
 
-v3.1.15 (????-??-??)
+
+v3.1.16 (2017-XX-XX)
+--------------------
+
+* fixed issue #2392
+
+* ui - aql editor improvements + updated ace editor version (memory leak)
+
+* fixed lost HTTP requests
+
+* ui - fixed some event issues
+
+* avoid name resolution when given connection string is a valid ip address
+
+
+v3.1.15 (2017-03-20)
+--------------------
+
+* add logrotate configuration as requested in #2355
+
+* fixed issue #2376
+
+* ui - changed document api due a chrome bug
+
+* ui - fixed a submenu bug
 
 * added endpoint /_api/cluster/endpoints in cluster case to get all
   coordinator endpoints
 
 * fix documentation of /_api/endpoint, declaring this API obsolete.
 
+* Foxx response objects now have a `type` method for manipulating the content-type header
+
+* Foxx tests now support `xunit` and `tap` reporters
+
+
 v3.1.14 (2017-03-13)
 --------------------
+
+* ui - added feature request (multiple start nodes within graph viewer) #2317
 
 * added missing locks to authentication cache methods
 

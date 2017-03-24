@@ -25,6 +25,7 @@
 
 #include <string>
 
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include "Basics/Common.h"
 #include "Basics/Mutex.h"
 #include "Cluster/ClusterComm.h"
@@ -86,7 +87,10 @@ class Conductor {
   uint64_t _totalVerticesCount = 0;
   uint64_t _totalEdgesCount = 0;
   /// some tracking info
-  double _startTimeSecs = 0, _computationStartTimeSecs, _endTimeSecs = 0;
+  double _startTimeSecs = 0;
+  double _computationStartTimeSecs = 0;
+  double _endTimeSecs = 0;
+  std::unique_ptr<boost::asio::deadline_timer> _boost_timer;
 
   bool _startGlobalStep();
   int _initializeWorkers(std::string const& path, VPackSlice additional);
@@ -105,9 +109,8 @@ class Conductor {
   Conductor(uint64_t executionNumber, TRI_vocbase_t* vocbase,
             std::vector<CollectionID> const& vertexCollections,
             std::vector<CollectionID> const& edgeCollections,
-            std::string const& algoName,
-            VPackSlice const& userConfig);
-    
+            std::string const& algoName, VPackSlice const& userConfig);
+
   ~Conductor();
 
   void start();

@@ -105,8 +105,10 @@ class MMFilesPersistentIndex final : public MMFilesPathBasedIndex {
 
  public:
   IndexType type() const override {
-    return Index::TRI_IDX_TYPE_ROCKSDB_INDEX;
+    return Index::TRI_IDX_TYPE_PERSISTENT_INDEX;
   }
+  
+  char const* typeName() const override { return "persistent"; }
   
   bool allowExpansion() const override { return true; }
   
@@ -203,12 +205,6 @@ class MMFilesPersistentIndex final : public MMFilesPathBasedIndex {
       size_t& values, 
       std::unordered_set<std::string>& nonNullAttributes,
       bool) const;
-
- private:
-
-  /// @brief the RocksDB instance
-  rocksdb::OptimisticTransactionDB* _db;
-
 };
 }
 

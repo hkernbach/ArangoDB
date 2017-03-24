@@ -28,6 +28,7 @@
 #include "Basics/ReadWriteLock.h"
 #include "Indexes/IndexLookupContext.h"
 #include "MMFiles/MMFilesDatafileStatistics.h"
+#include "MMFiles/MMFilesDatafileStatisticsContainer.h"
 #include "MMFiles/MMFilesDitch.h"
 #include "MMFiles/MMFilesDocumentPosition.h"
 #include "MMFiles/MMFilesRevisionsCache.h"
@@ -36,7 +37,7 @@
 #include "VocBase/PhysicalCollection.h"
 
 struct MMFilesDatafile;
-struct TRI_df_marker_t;
+struct MMFilesMarker;
 
 namespace arangodb {
 class LogicalCollection;
@@ -71,8 +72,8 @@ class MMFilesCollection final : public PhysicalCollection {
     arangodb::MMFilesPrimaryIndex* _primaryIndex;
     TRI_voc_tid_t _tid;
     TRI_voc_fid_t _fid;
-    std::unordered_map<TRI_voc_fid_t, DatafileStatisticsContainer*> _stats;
-    DatafileStatisticsContainer* _dfi;
+    std::unordered_map<TRI_voc_fid_t, MMFilesDatafileStatisticsContainer*> _stats;
+    MMFilesDatafileStatisticsContainer* _dfi;
     transaction::Methods* _trx;
     ManagedDocumentResult _mmdr;
     IndexLookupContext _context;
@@ -123,6 +124,8 @@ class MMFilesCollection final : public PhysicalCollection {
 
   ~MMFilesCollection();
 
+  constexpr static double defaultLockTimeout = 10.0 * 60.0;
+
   std::string const& path() const override {
     return _path;
   };
@@ -132,7 +135,7 @@ class MMFilesCollection final : public PhysicalCollection {
   };
 
   arangodb::Result updateProperties(VPackSlice const& slice, bool doSync) override;
-  virtual arangodb::Result persistProperties() noexcept override;
+  virtual arangodb::Result persistProperties() override;
 
   virtual PhysicalCollection* clone(LogicalCollection*, PhysicalCollection*) override;
 
@@ -144,23 +147,24 @@ class MMFilesCollection final : public PhysicalCollection {
 
   int64_t initialCount() const override;
   void updateCount(int64_t) override;
-  size_t journalSize() const override;
+  size_t journalSize() const;
   bool isVolatile() const;
  
   TRI_voc_tick_t maxTick() const { return _maxTick; }
   void maxTick(TRI_voc_tick_t value) { _maxTick = value; }
 
   void getPropertiesVPack(velocypack::Builder&) const override;
+  void getPropertiesVPackCoordinator(velocypack::Builder&) const override;
 
   // datafile management
   bool applyForTickRange(TRI_voc_tick_t dataMin, TRI_voc_tick_t dataMax,
-                         std::function<bool(TRI_voc_tick_t foundTick, TRI_df_marker_t const* marker)> const& callback) override;
+                         std::function<bool(TRI_voc_tick_t foundTick, MMFilesMarker const* marker)> const& callback);
 
   /// @brief closes an open collection
   int close() override;
   
   /// @brief rotate the active journal - will do nothing if there is no journal
-  int rotateActiveJournal() override;
+  int rotateActiveJournal();
 
   /// @brief sync the active journal - will do nothing if there is no journal
   /// or if the journal is volatile
@@ -185,7 +189,7 @@ class MMFilesCollection final : public PhysicalCollection {
   int sealDatafile(MMFilesDatafile* datafile, bool isCompactor);
 
   /// @brief increase dead stats for a datafile, if it exists
-  void updateStats(TRI_voc_fid_t fid, DatafileStatisticsContainer const& values) {
+  void updateStats(TRI_voc_fid_t fid, MMFilesDatafileStatisticsContainer const& values) {
     _datafileStatistics.update(fid, values);
   }
    
@@ -230,7 +234,7 @@ class MMFilesCollection final : public PhysicalCollection {
   
   bool isFullyCollected() const override;
 
-  bool doCompact() const override { return _doCompact; }
+  bool doCompact() const { return _doCompact; }
 
   
   int64_t uncollectedLogfileEntries() const {
@@ -252,7 +256,7 @@ class MMFilesCollection final : public PhysicalCollection {
   // -- SECTION Indexes --
   ///////////////////////////////////
 
-  uint32_t indexBuckets() const override;
+  uint32_t indexBuckets() const;
 
   // WARNING: Make sure that this Collection Instance
   // is somehow protected. If it goes out of all scopes
@@ -368,8 +372,8 @@ class MMFilesCollection final : public PhysicalCollection {
                       TRI_voc_fid_t fid, bool isInWal);
 
   bool updateRevisionConditional(TRI_voc_rid_t revisionId,
-                                 TRI_df_marker_t const* oldPosition,
-                                 TRI_df_marker_t const* newPosition,
+                                 MMFilesMarker const* oldPosition,
+                                 MMFilesMarker const* newPosition,
                                  TRI_voc_fid_t newFid, bool isInWal);
 
   void removeRevision(TRI_voc_rid_t revisionId, bool updateStats);
@@ -403,24 +407,24 @@ class MMFilesCollection final : public PhysicalCollection {
                      arangodb::velocypack::Slice const toRemove);
 
 
-  static int OpenIteratorHandleDocumentMarker(TRI_df_marker_t const* marker,
+  static int OpenIteratorHandleDocumentMarker(MMFilesMarker const* marker,
                                               MMFilesDatafile* datafile,
                                               OpenIteratorState* state);
-  static int OpenIteratorHandleDeletionMarker(TRI_df_marker_t const* marker,
+  static int OpenIteratorHandleDeletionMarker(MMFilesMarker const* marker,
                                               MMFilesDatafile* datafile,
                                               OpenIteratorState* state);
-  static bool OpenIterator(TRI_df_marker_t const* marker,
+  static bool OpenIterator(MMFilesMarker const* marker,
                            OpenIteratorState* data, MMFilesDatafile* datafile);
 
   /// @brief create statistics for a datafile, using the stats provided
   void createStats(TRI_voc_fid_t fid,
-                   DatafileStatisticsContainer const& values) {
+                   MMFilesDatafileStatisticsContainer const& values) {
     _datafileStatistics.create(fid, values);
     }
 
     /// @brief iterates over a collection
     bool iterateDatafiles(
-        std::function<bool(TRI_df_marker_t const*, MMFilesDatafile*)> const&
+        std::function<bool(MMFilesMarker const*, MMFilesDatafile*)> const&
             cb);
 
     /// @brief creates a datafile
@@ -437,7 +441,7 @@ class MMFilesCollection final : public PhysicalCollection {
 
     bool iterateDatafilesVector(
         std::vector<MMFilesDatafile*> const& files,
-        std::function<bool(TRI_df_marker_t const*, MMFilesDatafile*)> const&
+        std::function<bool(MMFilesMarker const*, MMFilesDatafile*)> const&
             cb);
 
     MMFilesDocumentPosition lookupRevision(TRI_voc_rid_t revisionId) const;

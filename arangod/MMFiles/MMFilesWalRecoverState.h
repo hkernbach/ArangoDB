@@ -59,6 +59,19 @@ struct MMFilesWalRecoverState {
   bool willBeDropped(TRI_voc_cid_t collectionId) const {
     return (totalDroppedCollections.find(collectionId) != totalDroppedCollections.end());
   }
+  
+  /// @brief checks if there will be a drop marker for the view
+  bool willViewBeDropped(TRI_voc_cid_t viewId) const {
+    return (totalDroppedViews.find(viewId) != totalDroppedViews.end());
+  }
+  
+  /// @brief checks if there will be a drop marker for the database or database
+  bool willViewBeDropped(TRI_voc_tick_t databaseId, TRI_voc_cid_t viewId) const {
+    if (totalDroppedDatabases.find(databaseId) != totalDroppedDatabases.end()) {
+      return true;
+    }
+    return (totalDroppedViews.find(viewId) != totalDroppedViews.end());
+  }
 
   /// @brief checks if a database is dropped already
   bool isDropped(TRI_voc_tick_t databaseId) const {
@@ -116,6 +129,8 @@ struct MMFilesWalRecoverState {
 
   /// @brief gets a collection (and inserts it into the cache if not in it)
   arangodb::LogicalCollection* useCollection(TRI_vocbase_t*, TRI_voc_cid_t, int&);
+  
+  arangodb::LogicalView* releaseView(TRI_voc_cid_t);
 
   /// @brief looks up a collection
   /// the collection will be opened after this call and inserted into a local
@@ -125,16 +140,16 @@ struct MMFilesWalRecoverState {
 
   /// @brief executes a single operation inside a transaction
   int executeSingleOperation(
-      TRI_voc_tick_t, TRI_voc_cid_t, TRI_df_marker_t const*, TRI_voc_fid_t,
+      TRI_voc_tick_t, TRI_voc_cid_t, MMFilesMarker const*, TRI_voc_fid_t,
       std::function<int(SingleCollectionTransaction*, MMFilesMarkerEnvelope*)>);
 
   /// @brief callback to handle one marker during recovery
   /// this function modifies indexes etc.
-  static bool ReplayMarker(TRI_df_marker_t const*, void*, MMFilesDatafile*);
+  static bool ReplayMarker(MMFilesMarker const*, void*, MMFilesDatafile*);
 
   /// @brief callback to handle one marker during recovery
   /// this function only builds up state and does not change any data
-  static bool InitialScanMarker(TRI_df_marker_t const*, void*, MMFilesDatafile*);
+  static bool InitialScanMarker(MMFilesMarker const*, void*, MMFilesDatafile*);
 
   /// @brief replay a single logfile
   int replayLogfile(MMFilesWalLogfile*, int);
@@ -155,8 +170,10 @@ struct MMFilesWalRecoverState {
   std::unordered_map<TRI_voc_tid_t, std::pair<TRI_voc_tick_t, bool>>
       failedTransactions;
   std::unordered_set<TRI_voc_cid_t> droppedCollections;
+  std::unordered_set<TRI_voc_cid_t> droppedViews;
   std::unordered_set<TRI_voc_tick_t> droppedDatabases;
   std::unordered_set<TRI_voc_cid_t> totalDroppedCollections;
+  std::unordered_set<TRI_voc_cid_t> totalDroppedViews;
   std::unordered_set<TRI_voc_tick_t> totalDroppedDatabases;
 
   TRI_voc_tick_t lastTick;

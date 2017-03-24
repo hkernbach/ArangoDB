@@ -29,7 +29,6 @@
 
 #include "Cluster/ServerState.h"
 #include "Indexes/Index.h"
-#include "MMFiles/fulltext-index.h"
 #include "MMFiles/MMFilesEdgeIndex.h"
 #include "MMFiles/MMFilesFulltextIndex.h"
 #include "MMFiles/MMFilesGeoIndex.h"
@@ -37,6 +36,7 @@
 #include "MMFiles/MMFilesPersistentIndex.h"
 #include "MMFiles/MMFilesPrimaryIndex.h"
 #include "MMFiles/MMFilesSkiplistIndex.h"
+#include "MMFiles/mmfiles-fulltext-index.h"
 #include "VocBase/voc-types.h"
 
 #include <velocypack/Builder.h>
@@ -290,7 +290,7 @@ int MMFilesIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
     }
 
     
-    enhanced.add("type", VPackValue(Index::typeName(type)));
+    enhanced.add("type", VPackValue(Index::oldtypeName(type)));
 
     switch (type) {
       case Index::TRI_IDX_TYPE_UNKNOWN: {
@@ -319,7 +319,7 @@ int MMFilesIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
         res = EnhanceJsonIndexSkiplist(definition, enhanced, create);
         break;
       
-      case Index::TRI_IDX_TYPE_ROCKSDB_INDEX:
+      case Index::TRI_IDX_TYPE_PERSISTENT_INDEX:
         res = EnhanceJsonIndexPersistent(definition, enhanced, create);
         break;
 
@@ -420,7 +420,7 @@ std::shared_ptr<Index> MMFilesIndexFactory::prepareIndexFromSlice(
       newIdx.reset(new arangodb::MMFilesSkiplistIndex(iid, col, info));
       break;
     }
-    case arangodb::Index::TRI_IDX_TYPE_ROCKSDB_INDEX: {
+    case arangodb::Index::TRI_IDX_TYPE_PERSISTENT_INDEX: {
       newIdx.reset(new arangodb::MMFilesPersistentIndex(iid, col, info));
       break;
     }

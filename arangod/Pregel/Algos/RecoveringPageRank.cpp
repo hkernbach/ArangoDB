@@ -119,7 +119,7 @@ VertexCompensation<float, float, float>* RecoveringPageRank::createCompensation(
 struct RPRMasterContext : public MasterContext {
   float _threshold;
 
-  RPRMasterContext(VPackSlice params) {
+  explicit RPRMasterContext(VPackSlice params) {
     VPackSlice t = params.get("convergenceThreshold");
     _threshold = t.isNumber() ? t.getNumber<float>() : EPS;
   };
@@ -129,8 +129,8 @@ struct RPRMasterContext : public MasterContext {
 
   bool postGlobalSuperstep() override {
     const float* convergence = getAggregatedValue<float>(kConvergence);
-    LOG_TOPIC(INFO, Logger::PREGEL) << "Current convergence level"
-                                    << *convergence;
+    LOG_TOPIC(DEBUG, Logger::PREGEL) << "Current convergence level"
+                                     << *convergence;
     totalRank = *getAggregatedValue<float>(kRank);
 
     float const* diff = getAggregatedValue<float>(kConvergence);

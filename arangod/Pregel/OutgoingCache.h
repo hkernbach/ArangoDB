@@ -55,7 +55,7 @@ class OutCache {
  protected:
   WorkerConfig const* _config;
   MessageFormat<M> const* _format;
-  InCache<M>* _localCache;
+  InCache<M>* _localCache = nullptr;
   InCache<M>* _localCacheNextGSS = nullptr;
   std::string _baseUrl;
   uint32_t _batchSize = 1000;
@@ -100,8 +100,7 @@ class OutCache {
 template <typename M>
 class ArrayOutCache : public OutCache<M> {
   /// @brief two stage map: shard -> vertice -> message
-  std::unordered_map<PregelShard,
-                     std::unordered_map<PregelKey, std::vector<M>>>
+  std::unordered_map<PregelShard, std::unordered_map<PregelKey, std::vector<M>>>
       _shardMap;
 
   void _removeContainedMessages() override;
@@ -121,8 +120,7 @@ class CombiningOutCache : public OutCache<M> {
   MessageCombiner<M> const* _combiner;
 
   /// @brief two stage map: shard -> vertice -> message
-  std::unordered_map<PregelShard, std::unordered_map<PregelKey, M>>
-      _shardMap;
+  std::unordered_map<PregelShard, std::unordered_map<PregelKey, M>> _shardMap;
   void _removeContainedMessages() override;
 
  public:

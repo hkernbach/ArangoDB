@@ -48,6 +48,7 @@
 #include "V8/v8-conv.h"
 #include "V8/v8-utils.h"
 #include "V8/v8-vpack.h"
+#include "V8Server/v8-externals.h"
 #include "V8Server/v8-vocbase.h"
 #include "V8Server/v8-vocbaseprivate.h"
 #include "V8Server/v8-vocindex.h"
@@ -92,18 +93,6 @@ static inline bool ExtractWaitForSync(
   TRI_ASSERT(index > 0);
 
   return (args.Length() >= index && TRI_ObjectToBoolean(args[index - 1]));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// @brief create a v8 collection id value from the internal collection id
-////////////////////////////////////////////////////////////////////////////////
-
-static inline v8::Handle<v8::Value> V8CollectionId(v8::Isolate* isolate,
-                                                   TRI_voc_cid_t cid) {
-  char buffer[21];
-  size_t len = TRI_StringUInt64InPlace((uint64_t)cid, (char*)&buffer);
-
-  return TRI_V8_PAIR_STRING((char const*)buffer, (int)len);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1242,10 +1231,10 @@ static void JS_PlanIdVocbaseCol(
   }
 
   if (ServerState::instance()->isCoordinator()) {
-    TRI_V8_RETURN(V8CollectionId(isolate, collection->cid()));
+    TRI_V8_RETURN(TRI_V8UInt64String<TRI_voc_cid_t>(isolate, collection->cid()));
   }
 
-  TRI_V8_RETURN(V8CollectionId(isolate, collection->planId()));
+  TRI_V8_RETURN(TRI_V8UInt64String<TRI_voc_cid_t>(isolate, collection->planId()));
   TRI_V8_TRY_CATCH_END
 }
 
@@ -1918,7 +1907,7 @@ static void JS_PregelStart(v8::FunctionCallbackInfo<v8::Value> const& args) {
   if (args[2]->IsArray()) {
     parse(args[2], paramEdges);
   } else if (args[2]->IsString()) {
-    paramEdges.push_back(TRI_ObjectToString(args[1]));
+    paramEdges.push_back(TRI_ObjectToString(args[2]));
   } else {
     TRI_V8_THROW_EXCEPTION_USAGE("Specify an array of edge collections (or a string)");
   }
@@ -1996,6 +1985,8 @@ static void JS_PregelStart(v8::FunctionCallbackInfo<v8::Value> const& args) {
       if (coll == nullptr || coll->deleted()) {
         TRI_V8_THROW_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND, name);
       }
+      std::vector<std::string> actual = coll->realNamesForRead();
+      edgeColls.insert(edgeColls.end(), actual.begin(), actual.end());
     } else {
         THROW_ARANGO_EXCEPTION(TRI_ERROR_INTERNAL);
     }
@@ -2004,7 +1995,7 @@ static void JS_PregelStart(v8::FunctionCallbackInfo<v8::Value> const& args) {
   uint64_t en = pregel::PregelFeature::instance()->createExecutionNumber();
   auto c = std::make_unique<pregel::Conductor>(en, vocbase, paramVertices, edgeColls,
                                                algorithm, paramBuilder.slice());
-  pregel::PregelFeature::instance()->addExecution(c.get(), en);
+  pregel::PregelFeature::instance()->addConductor(c.get(), en);
   c->start();
   c.release();
   
@@ -2056,7 +2047,7 @@ static void JS_PregelCancel(v8::FunctionCallbackInfo<v8::Value> const& args) {
     TRI_V8_THROW_EXCEPTION_USAGE("Execution number is invalid");
   }
   c->cancel();
-  pregel::PregelFeature::instance()->cleanup(executionNum);
+  pregel::PregelFeature::instance()->cleanupConductor(executionNum);
   
   TRI_V8_RETURN_UNDEFINED();
   TRI_V8_TRY_CATCH_END
@@ -2167,52 +2158,6 @@ static void JS_RevisionVocbaseCol(
   TRI_V8_TRY_CATCH_END
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/// @brief was docuBlock collectionRotate
-////////////////////////////////////////////////////////////////////////////////
-
-static void JS_RotateVocbaseCol(
-    v8::FunctionCallbackInfo<v8::Value> const& args) {
-  TRI_V8_TRY_CATCH_BEGIN(isolate);
-  v8::HandleScope scope(isolate);
-
-  if (ServerState::instance()->isCoordinator()) {
-    // renaming a collection in a cluster is unsupported
-    TRI_V8_THROW_EXCEPTION(TRI_ERROR_CLUSTER_UNSUPPORTED);
-  }
-
-  PREVENT_EMBEDDED_TRANSACTION();
-
-  arangodb::LogicalCollection* collection =
-      TRI_UnwrapClass<arangodb::LogicalCollection>(args.Holder(), WRP_VOCBASE_COL_TYPE);
-
-  if (collection == nullptr) {
-    TRI_V8_THROW_EXCEPTION_INTERNAL("cannot extract collection");
-  }
-  
-  TRI_THROW_SHARDING_COLLECTION_NOT_YET_IMPLEMENTED(collection);
-
-  SingleCollectionTransaction trx(
-      transaction::V8Context::Create(collection->vocbase(), true),
-      collection->cid(), AccessMode::Type::READ);
-
-  int res = trx.begin();
-  
-  if (res != TRI_ERROR_NO_ERROR) {
-    TRI_V8_THROW_EXCEPTION(res);
-  }
-
-  res = collection->getPhysical()->rotateActiveJournal();
-
-  trx.finish(res);
-
-  if (res != TRI_ERROR_NO_ERROR) {
-    TRI_V8_THROW_EXCEPTION_MESSAGE(res, "could not rotate journal");
-  }
-
-  TRI_V8_RETURN_UNDEFINED();
-  TRI_V8_TRY_CATCH_END
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief retrieves a collection from a V8 argument
@@ -2868,26 +2813,31 @@ static void JS_CompletionsVocbase(
   result->Set(j++, TRI_V8_ASCII_STRING("_createDatabase()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_createDocumentCollection()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_createEdgeCollection()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_createView()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_createStatement()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_document()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_drop()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_dropDatabase()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_dropView()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_executeTransaction()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_exists()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_id"));
   result->Set(j++, TRI_V8_ASCII_STRING("_isSystem()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_databases()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_engine()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_name()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_path()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_pregelStart()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_pregelStatus()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_pregelStop()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_query()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_remove()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_replace()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_update()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_useDatabase()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_version()"));
-  result->Set(j++, TRI_V8_ASCII_STRING("_pregelStart()"));
-  result->Set(j++, TRI_V8_ASCII_STRING("_pregelStatus()"));
-  result->Set(j++, TRI_V8_ASCII_STRING("_pregelStop()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_view()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_views()"));
 
   TRI_V8_RETURN(result);
   TRI_V8_TRY_CATCH_END
@@ -2992,10 +2942,10 @@ static void JS_CountVocbaseCol(
 // generate the arangodb::LogicalCollection template
 // .............................................................................
 
-void TRI_InitV8Collection(v8::Handle<v8::Context> context,
-                          TRI_vocbase_t* vocbase, size_t const threadNumber,
-                          TRI_v8_global_t* v8g, v8::Isolate* isolate,
-                          v8::Handle<v8::ObjectTemplate> ArangoDBNS) {
+void TRI_InitV8Collections(v8::Handle<v8::Context> context,
+                           TRI_vocbase_t* vocbase,
+                           TRI_v8_global_t* v8g, v8::Isolate* isolate,
+                           v8::Handle<v8::ObjectTemplate> ArangoDBNS) {
   TRI_AddMethodVocbase(isolate, ArangoDBNS, TRI_V8_ASCII_STRING("_changeMode"),
                        JS_ChangeOperationModeVocbase);
   TRI_AddMethodVocbase(isolate, ArangoDBNS, TRI_V8_ASCII_STRING("_collection"),
@@ -3075,8 +3025,6 @@ void TRI_InitV8Collection(v8::Handle<v8::Context> context,
                        JS_RenameVocbaseCol);
   TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("replace"),
                        JS_ReplaceVocbaseCol);
-  TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("rotate"),
-                       JS_RotateVocbaseCol);
   TRI_AddMethodVocbase(
       isolate, rt, TRI_V8_ASCII_STRING("save"),
       JS_InsertVocbaseCol);  // note: save is now an alias for insert

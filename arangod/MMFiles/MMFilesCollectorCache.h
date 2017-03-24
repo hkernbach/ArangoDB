@@ -21,16 +21,16 @@
 /// @author Jan Steemann
 ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef ARANGOD_MMFILES_COLLECTOR_CACHE_H
-#define ARANGOD_MMFILES_COLLECTOR_CACHE_H 1
+#ifndef ARANGOD_MMFILES_MMFILES_COLLECTOR_CACHE_H
+#define ARANGOD_MMFILES_MMFILES_COLLECTOR_CACHE_H 1
 
 #include "Basics/Common.h"
 #include "MMFiles/MMFilesDitch.h"
-#include "VocBase/DatafileStatisticsContainer.h"
+#include "MMFiles/MMFilesDatafileStatisticsContainer.h"
 #include "VocBase/voc-types.h"
 
 struct MMFilesDatafile;
-struct TRI_df_marker_t;
+struct MMFilesMarker;
 
 namespace arangodb {
 class MMFilesWalLogfile;
@@ -80,20 +80,20 @@ struct MMFilesCollectorCache {
   }
 
   /// @brief return a reference to an existing datafile statistics struct
-  DatafileStatisticsContainer& getDfi(TRI_voc_fid_t fid) {
+  MMFilesDatafileStatisticsContainer& getDfi(TRI_voc_fid_t fid) {
     return dfi[fid];
   }
 
   /// @brief return a reference to an existing datafile statistics struct,
   /// create it if it does not exist
-  DatafileStatisticsContainer& createDfi(TRI_voc_fid_t fid) {
+  MMFilesDatafileStatisticsContainer& createDfi(TRI_voc_fid_t fid) {
     auto it = dfi.find(fid);
 
     if (it != dfi.end()) {
       return (*it).second;
     }
 
-    dfi.emplace(fid, DatafileStatisticsContainer());
+    dfi.emplace(fid, MMFilesDatafileStatisticsContainer());
 
     return dfi[fid];
   }
@@ -132,7 +132,7 @@ struct MMFilesCollectorCache {
   std::vector<arangodb::MMFilesDocumentDitch*> ditches;
 
   /// @brief datafile info cache, updated when the collector transfers markers
-  std::unordered_map<TRI_voc_fid_t, DatafileStatisticsContainer> dfi;
+  std::unordered_map<TRI_voc_fid_t, MMFilesDatafileStatisticsContainer> dfi;
 
   /// @brief id of last datafile handled
   TRI_voc_fid_t lastFid;
@@ -142,11 +142,11 @@ struct MMFilesCollectorCache {
 };
   
 /// @brief typedef key => document marker
-typedef std::unordered_map<std::string, struct TRI_df_marker_t const*>
+typedef std::unordered_map<std::string, struct MMFilesMarker const*>
     MMFilesDocumentOperationsType;
 
 /// @brief typedef for structural operation (attributes, shapes) markers
-typedef std::vector<struct TRI_df_marker_t const*> MMFilesOperationsType;
+typedef std::vector<struct MMFilesMarker const*> MMFilesOperationsType;
 
 }
 

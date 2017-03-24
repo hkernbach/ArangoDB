@@ -24,6 +24,7 @@
 #define ARANGODB_PREGEL_WORKER_H 1
 
 #include <atomic>
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include "Basics/Common.h"
 #include "Basics/Mutex.h"
 #include "Basics/ReadWriteLock.h"
@@ -47,7 +48,8 @@ class IWorker {
   virtual void cancelGlobalStep(
       VPackSlice const& data) = 0;  // called by coordinator
   virtual void receivedMessages(VPackSlice const& data) = 0;
-  virtual void finalizeExecution(VPackSlice const& data) = 0;
+  virtual void finalizeExecution(VPackSlice const& data,
+                                 std::function<void(void)> callback) = 0;
   virtual void startRecovery(VPackSlice const& data) = 0;
   virtual void compensateStep(VPackSlice const& data) = 0;
   virtual void finalizeRecovery(VPackSlice const& data) = 0;
@@ -98,7 +100,7 @@ class Worker : public IWorker {
 
   // only valid while recovering to determine the offset
   // where new vertices were inserted
-  size_t _preRecoveryTotal;
+  size_t _preRecoveryTotal = 0;
 
   std::unique_ptr<AggregatorHandler> _conductorAggregators;
   std::unique_ptr<AggregatorHandler> _workerAggregators;
@@ -127,6 +129,7 @@ class Worker : public IWorker {
   std::atomic<uint64_t> _nextGSSSendMessageCount;
   /// if the worker has started sendng messages to the next GSS
   std::atomic<bool> _requestedNextGSS;
+  std::unique_ptr<boost::asio::deadline_timer> _boost_timer;
 
   void _initializeMessageCaches();
   void _initializeVertexContext(VertexContext<V, E, M>* ctx);
@@ -150,7 +153,8 @@ class Worker : public IWorker {
   void startGlobalStep(VPackSlice const& data) override;
   void cancelGlobalStep(VPackSlice const& data) override;
   void receivedMessages(VPackSlice const& data) override;
-  void finalizeExecution(VPackSlice const& data) override;
+  void finalizeExecution(VPackSlice const& data,
+                         std::function<void(void)> callback) override;
   void startRecovery(VPackSlice const& data) override;
   void compensateStep(VPackSlice const& data) override;
   void finalizeRecovery(VPackSlice const& data) override;

@@ -565,8 +565,8 @@ V8Context* V8DealerFeature::enterContext(TRI_vocbase_t* vocbase,
   }
 
   TimedAction exitWhenNoContext([](double waitTime) {
-    LOG_TOPIC(WARN, arangodb::Logger::V8) << "giving up waiting for V8 context after " << Logger::FIXED(waitTime) << " s";
-  }, 60);
+    LOG_TOPIC(WARN, arangodb::Logger::V8) << "giving up waiting for unused V8 context after " << Logger::FIXED(waitTime) << " s";
+  }, 120);
 
 
   V8Context* context = nullptr;
@@ -693,7 +693,7 @@ V8Context* V8DealerFeature::enterContext(TRI_vocbase_t* vocbase,
         JobGuard jobGuard(SchedulerFeature::SCHEDULER);
         jobGuard.block();
         
-        guard.wait();
+        guard.wait(100000);
       }
 
       if (exitWhenNoContext.tick()) {
@@ -832,7 +832,7 @@ void V8DealerFeature::exitContext(V8Context* context) {
     bool performGarbageCollection = false;
 
     // postpone garbage collection for standard contexts
-    double lastGc = (gc != nullptr) ? gc->getLastGcStamp() : -1.0;
+    double lastGc = gc->getLastGcStamp();
     if (context->_lastGcStamp + _gcFrequency < lastGc) {
       LOG_TOPIC(TRACE, arangodb::Logger::V8) << "V8 context has reached GC timeout threshold and will be "
                     "scheduled for GC";

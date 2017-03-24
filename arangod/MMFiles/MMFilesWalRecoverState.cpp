@@ -43,6 +43,7 @@
 #include "Utils/SingleCollectionTransaction.h"
 #include "Transaction/StandaloneContext.h"
 #include "VocBase/LogicalCollection.h"
+#include "VocBase/LogicalView.h"
 
 #include <velocypack/Collection.h>
 #include <velocypack/Parser.h>
@@ -257,7 +258,7 @@ LogicalCollection* MMFilesWalRecoverState::getCollection(
 /// @brief executes a single operation inside a transaction
 int MMFilesWalRecoverState::executeSingleOperation(
     TRI_voc_tick_t databaseId, TRI_voc_cid_t collectionId,
-    TRI_df_marker_t const* marker, TRI_voc_fid_t fid,
+    MMFilesMarker const* marker, TRI_voc_fid_t fid,
     std::function<int(SingleCollectionTransaction*, MMFilesMarkerEnvelope*)>
         func) {
   // first find the correct database
@@ -336,7 +337,7 @@ int MMFilesWalRecoverState::executeSingleOperation(
 
 /// @brief callback to handle one marker during recovery
 /// this function only builds up state and does not change any data
-bool MMFilesWalRecoverState::InitialScanMarker(TRI_df_marker_t const* marker,
+bool MMFilesWalRecoverState::InitialScanMarker(MMFilesMarker const* marker,
                                                void* data,
                                                MMFilesDatafile* datafile) {
   MMFilesWalRecoverState* state =
@@ -353,7 +354,7 @@ bool MMFilesWalRecoverState::InitialScanMarker(TRI_df_marker_t const* marker,
     state->lastTick = tick;
   }
 
-  TRI_df_marker_type_t const type = marker->getType();
+  MMFilesMarkerType const type = marker->getType();
 
   switch (type) {
     case TRI_DF_MARKER_VPACK_DOCUMENT: {
@@ -413,6 +414,14 @@ bool MMFilesWalRecoverState::InitialScanMarker(TRI_df_marker_t const* marker,
       state->totalDroppedCollections.emplace(collectionId);
       break;
     }
+    
+    case TRI_DF_MARKER_VPACK_DROP_VIEW: {
+      // note that the view was dropped and doesn't need to be recovered
+      TRI_voc_cid_t const viewId =
+          MMFilesDatafileHelper::ViewId(marker);
+      state->totalDroppedViews.emplace(viewId);
+      break;
+    }
 
     default: {
       // do nothing
@@ -424,7 +433,7 @@ bool MMFilesWalRecoverState::InitialScanMarker(TRI_df_marker_t const* marker,
 
 /// @brief callback to replay one marker during recovery
 /// this function modifies indexes etc.
-bool MMFilesWalRecoverState::ReplayMarker(TRI_df_marker_t const* marker,
+bool MMFilesWalRecoverState::ReplayMarker(MMFilesMarker const* marker,
                                           void* data,
                                           MMFilesDatafile* datafile) {
   MMFilesWalRecoverState* state =
@@ -434,7 +443,7 @@ bool MMFilesWalRecoverState::ReplayMarker(TRI_df_marker_t const* marker,
   LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "replaying marker of type " << TRI_NameMarkerDatafile(marker);
 #endif
 
-  TRI_df_marker_type_t const type = marker->getType();
+  MMFilesMarkerType const type = marker->getType();
 
   try {
     switch (type) {
@@ -487,8 +496,8 @@ bool MMFilesWalRecoverState::ReplayMarker(TRI_df_marker_t const* marker,
                 return TRI_ERROR_NO_ERROR;
               }
 
-              TRI_df_marker_t const* marker =
-                  static_cast<TRI_df_marker_t const*>(envelope->mem());
+              MMFilesMarker const* marker =
+                  static_cast<MMFilesMarker const*>(envelope->mem());
 
               std::string const collectionName =
                   trx->documentCollection()->name();
@@ -564,8 +573,8 @@ bool MMFilesWalRecoverState::ReplayMarker(TRI_df_marker_t const* marker,
                 return TRI_ERROR_NO_ERROR;
               }
 
-              TRI_df_marker_t const* marker =
-                  static_cast<TRI_df_marker_t const*>(envelope->mem());
+              MMFilesMarker const* marker =
+                  static_cast<MMFilesMarker const*>(envelope->mem());
 
               std::string const collectionName =
                   trx->documentCollection()->name();
@@ -736,8 +745,64 @@ bool MMFilesWalRecoverState::ReplayMarker(TRI_df_marker_t const* marker,
         arangodb::Result res = collection->updateProperties(payloadSlice, forceSync);
         if (!res.ok()) {
           LOG_TOPIC(WARN, arangodb::Logger::FIXME)
-              << "cannot change collection properties for collection "
+              << "cannot change properties for collection "
               << collectionId << " in database " << databaseId << ": "
+              << res.errorMessage();
+          ++state->errorCount;
+          return state->canContinue();
+        }
+
+        break;
+      }
+      
+      case TRI_DF_MARKER_VPACK_CHANGE_VIEW: {
+        TRI_voc_tick_t const databaseId =
+            MMFilesDatafileHelper::DatabaseId(marker);
+        TRI_voc_cid_t const viewId =
+            MMFilesDatafileHelper::ViewId(marker);
+        VPackSlice const payloadSlice(reinterpret_cast<char const*>(marker) +
+                                      MMFilesDatafileHelper::VPackOffset(type));
+
+        if (!payloadSlice.isObject()) {
+          LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "cannot change properties of view: invalid marker";
+          ++state->errorCount;
+          return state->canContinue();
+        }
+
+        if (state->isDropped(databaseId)) {
+          return true;
+        }
+
+        LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "found view change marker. databaseId: "
+                   << databaseId << ", viewId: " << viewId;
+
+        TRI_vocbase_t* vocbase = state->useDatabase(databaseId);
+
+        if (vocbase == nullptr) {
+          // if the underlying database is gone, we can go on
+          LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "cannot open database " << databaseId;
+          return true;
+        }
+
+        std::shared_ptr<arangodb::LogicalView> view = vocbase->lookupView(viewId);
+
+        if (view == nullptr) {
+          // if the underlying collection is gone, we can go on
+          LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "cannot change properties of view "
+                     << viewId << " in database " << databaseId << ": "
+                     << TRI_errno_string(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND);
+          return true;
+        }
+
+        // turn off sync temporarily if the database or collection are going to
+        // be
+        // dropped later
+        bool const forceSync = state->willViewBeDropped(databaseId, viewId);
+        arangodb::Result res = view->updateProperties(payloadSlice, forceSync);
+        if (!res.ok()) {
+          LOG_TOPIC(WARN, arangodb::Logger::FIXME)
+              << "cannot change properties for view "
+              << viewId << " in database " << databaseId << ": "
               << res.errorMessage();
           ++state->errorCount;
           return state->canContinue();
@@ -941,6 +1006,98 @@ bool MMFilesWalRecoverState::ReplayMarker(TRI_df_marker_t const* marker,
         }
         break;
       }
+      
+      case TRI_DF_MARKER_VPACK_CREATE_VIEW: {
+        TRI_voc_tick_t const databaseId =
+            MMFilesDatafileHelper::DatabaseId(marker);
+        TRI_voc_cid_t const viewId =
+            MMFilesDatafileHelper::ViewId(marker);
+        VPackSlice const payloadSlice(reinterpret_cast<char const*>(marker) +
+                                      MMFilesDatafileHelper::VPackOffset(type));
+
+        if (!payloadSlice.isObject()) {
+          LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "cannot create view: invalid marker";
+          ++state->errorCount;
+          return state->canContinue();
+        }
+
+        LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "found create view marker. databaseId: "
+                   << databaseId << ", viewId: " << viewId;
+
+        // remove the drop marker
+        state->droppedViews.erase(viewId);
+
+        if (state->isDropped(databaseId)) {
+          return true;
+        }
+
+        TRI_vocbase_t* vocbase = state->useDatabase(databaseId);
+
+        if (vocbase == nullptr) {
+          // if the underlying database is gone, we can go on
+          LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "cannot open database " << databaseId;
+          return true;
+        }
+
+        std::shared_ptr<arangodb::LogicalView> view = vocbase->lookupView(viewId);
+
+        if (view != nullptr) {
+          // drop an existing view
+          vocbase->dropView(view);
+        }
+
+        // check if there is another view with the same name as the one that
+        // we attempt to create
+        VPackSlice const nameSlice = payloadSlice.get("name");
+        std::string name = "";
+
+        if (nameSlice.isString()) {
+          name = nameSlice.copyString();
+          view = vocbase->lookupView(name);
+
+          if (view != nullptr) {
+            vocbase->dropView(view);
+          }
+        } else {
+          LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "empty name attribute in create view marker for "
+                       "view "
+                    << viewId << " and database " << databaseId;
+          ++state->errorCount;
+          return state->canContinue();
+        }
+
+        int res = TRI_ERROR_NO_ERROR;
+        try {
+          if (state->willViewBeDropped(viewId)) {
+            // in case we detect that this view is going to be deleted
+            // anyway,
+            // set the sync properties to false temporarily
+            bool oldSync = state->databaseFeature->forceSyncProperties();
+            state->databaseFeature->forceSyncProperties(false);
+            view =
+                vocbase->createView(payloadSlice, viewId);
+            state->databaseFeature->forceSyncProperties(oldSync);
+          } else {
+            // view will be kept
+            view =
+                vocbase->createView(payloadSlice, viewId);
+          }
+          TRI_ASSERT(view != nullptr);
+        } catch (basics::Exception const& ex) {
+          res = ex.code();
+        } catch (...) {
+          res = TRI_ERROR_INTERNAL;
+        }
+
+        if (res != TRI_ERROR_NO_ERROR) {
+          LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "cannot create view " << viewId
+                    << " in database " << databaseId << ": "
+                    << TRI_errno_string(res);
+          ++state->errorCount;
+          return state->canContinue();
+        }
+        break;
+      }
 
       case TRI_DF_MARKER_VPACK_CREATE_DATABASE: {
         TRI_voc_tick_t const databaseId =
@@ -1097,6 +1254,34 @@ bool MMFilesWalRecoverState::ReplayMarker(TRI_df_marker_t const* marker,
           vocbase->dropCollection(collection, true);
         }
         MMFilesPersistentIndexFeature::dropCollection(databaseId, collectionId);
+        break;
+      }
+      
+      case TRI_DF_MARKER_VPACK_DROP_VIEW: {
+        TRI_voc_tick_t const databaseId =
+            MMFilesDatafileHelper::DatabaseId(marker);
+        TRI_voc_cid_t const viewId =
+            MMFilesDatafileHelper::ViewId(marker);
+
+        // insert the drop marker
+        state->droppedViews.emplace(viewId);
+
+        LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "found drop view marker. databaseId: " << databaseId
+                   << ", viewId: " << viewId;
+
+        TRI_vocbase_t* vocbase = state->useDatabase(databaseId);
+
+        if (vocbase == nullptr) {
+          // database already deleted - do nothing
+          return true;
+        }
+
+        // ignore any potential error returned by this call
+        std::shared_ptr<arangodb::LogicalView> view = vocbase->lookupView(viewId);
+
+        if (view != nullptr) {
+          vocbase->dropView(view);
+        }
         break;
       }
 

@@ -148,7 +148,7 @@ struct SCCGraphFormat : public GraphFormat<SCCValue, int8_t> {
   const std::string _resultField;
   uint64_t vertexIdRange = 0;
 
-  SCCGraphFormat(std::string const& result) : _resultField(result) {}
+  explicit SCCGraphFormat(std::string const& result) : _resultField(result) {}
 
   void willLoadVertices(uint64_t count) override {
     // if we aren't running in a cluster it doesn't matter
@@ -207,17 +207,17 @@ struct SCCMasterContext : public MasterContext {
     uint32_t const* phase = getAggregatedValue<uint32_t>(kPhase);
     switch (*phase) {
       case SCCPhase::TRANSPOSE:
-        LOG_TOPIC(INFO, Logger::PREGEL) << "Phase: TRANSPOSE";
+        LOG_TOPIC(DEBUG, Logger::PREGEL) << "Phase: TRANSPOSE";
         aggregate<uint32_t>(kPhase, SCCPhase::TRIMMING);
         break;
 
       case SCCPhase::TRIMMING:
-        LOG_TOPIC(INFO, Logger::PREGEL) << "Phase: TRIMMING";
+        LOG_TOPIC(DEBUG, Logger::PREGEL) << "Phase: TRIMMING";
         aggregate<uint32_t>(kPhase, SCCPhase::FORWARD_TRAVERSAL);
         break;
 
       case SCCPhase::FORWARD_TRAVERSAL: {
-        LOG_TOPIC(INFO, Logger::PREGEL) << "Phase: FORWARD_TRAVERSAL";
+        LOG_TOPIC(DEBUG, Logger::PREGEL) << "Phase: FORWARD_TRAVERSAL";
         bool const* newMaxFound = getAggregatedValue<bool>(kFoundNewMax);
         if (*newMaxFound == false) {
           aggregate<uint32_t>(kPhase, SCCPhase::BACKWARD_TRAVERSAL_START);
@@ -225,12 +225,12 @@ struct SCCMasterContext : public MasterContext {
       } break;
 
       case SCCPhase::BACKWARD_TRAVERSAL_START:
-        LOG_TOPIC(INFO, Logger::PREGEL) << "Phase: BACKWARD_TRAVERSAL_START";
+        LOG_TOPIC(DEBUG, Logger::PREGEL) << "Phase: BACKWARD_TRAVERSAL_START";
         aggregate<uint32_t>(kPhase, SCCPhase::BACKWARD_TRAVERSAL_REST);
         break;
 
       case SCCPhase::BACKWARD_TRAVERSAL_REST:
-        LOG_TOPIC(INFO, Logger::PREGEL) << "Phase: BACKWARD_TRAVERSAL_REST";
+        LOG_TOPIC(DEBUG, Logger::PREGEL) << "Phase: BACKWARD_TRAVERSAL_REST";
         bool const* converged = getAggregatedValue<bool>(kConverged);
         // continue until no more vertices are updated
         if (*converged == false) {

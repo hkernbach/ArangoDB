@@ -53,7 +53,7 @@ class InCache {
 
   /// Initialize format and mutex map.
   /// @param config can be null if you don't want locks
-  InCache(MessageFormat<M> const* format);
+  explicit InCache(MessageFormat<M> const* format);
   virtual void _set(PregelShard shard, PregelKey const& vertexId,
                     M const& data) = 0;
 
@@ -110,9 +110,9 @@ class ArrayInCache : public InCache<M> {
                                  PregelKey const& key) override;
   void clear() override;
   void erase(PregelShard shard, PregelKey const& key) override;
-  void forEach(std::function<void(PregelShard shard, PregelKey const& key,
-                                  M const& val)>
-                   func) override;
+  void forEach(
+      std::function<void(PregelShard shard, PregelKey const& key, M const& val)>
+          func) override;
 };
 
 /// Cache which stores one value per vertex id

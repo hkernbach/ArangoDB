@@ -37,7 +37,7 @@ ExternalProject_Add(
       ${JEMALLOC_BINARY_DIR}/doc/jemalloc.html
       ${JEMALLOC_BINARY_DIR}/doc/jemalloc.3
   CONFIGURE_COMMAND
-    ./autogen.sh --prefix=${CMAKE_CURRENT_BINARY_DIR} --disable-munmap --with-version=${JEMALLOC_VERSION}-0-g0
+    ./configure --prefix=${CMAKE_CURRENT_BINARY_DIR} --disable-munmap --with-version=${JEMALLOC_VERSION}-0-g0
   PREFIX
     ${JEMALLOC_BINARY_DIR}
   BUILD_COMMAND

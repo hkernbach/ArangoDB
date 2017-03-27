@@ -33,13 +33,17 @@ class JemallocFeature final : public application_features::ApplicationFeature {
  public:
   void collectOptions(std::shared_ptr<options::ProgramOptions>) override final;
   void validateOptions(std::shared_ptr<options::ProgramOptions>) override final;
-  void prepare() override final;
+  void start() override final;
+
+ public:
+  void setDefaultPath(std::string const&);
 
  private:
   uint64_t _residentLimit = 0;
   std::string _path;
+  std::string _defaultPath;
 
-  static char _staticPath[PATH_MAX];
+  static char _staticPath[PATH_MAX + 1];
 };
 }
 

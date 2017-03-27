@@ -41,21 +41,44 @@ namespace options {
 // convert a string into a number, base version for signed integer types
 template <typename T>
 inline typename std::enable_if<std::is_signed<T>::value, T>::type toNumber(
-    std::string value) {
+    std::string value, T base) {
   auto n = value.size();
   int64_t m = 1;
+  int64_t d = 1;
+  bool seen = false;
   if (n > 2) {
     std::string suffix = value.substr(n - 2);
 
     if (suffix == "kb" || suffix == "KB") {
       m = 1024;
       value = value.substr(0, n - 2);
+      seen = true;
     } else if (suffix == "mb" || suffix == "MB") {
       m = 1024 * 1024;
       value = value.substr(0, n - 2);
+      seen = true;
     } else if (suffix == "gb" || suffix == "GB") {
       m = 1024 * 1024 * 1024;
       value = value.substr(0, n - 2);
+      seen = true;
+    }
+  }
+  if (!seen && n > 1) {
+    std::string suffix = value.substr(n - 1);
+
+    if (suffix == "k" || suffix == "K") {
+      m = 1024;
+      value = value.substr(0, n - 1);
+    } else if (suffix == "m" || suffix == "M") {
+      m = 1024 * 1024;
+      value = value.substr(0, n - 1);
+    } else if (suffix == "g" || suffix == "G") {
+      m = 1024 * 1024 * 1024;
+      value = value.substr(0, n - 1);
+    } else if (suffix == "%") {
+      m = base;
+      d = 100;
+      value = value.substr(0, n - 1);
     }
   }
   auto v = static_cast<int64_t>(std::stoll(value));
@@ -63,27 +86,50 @@ inline typename std::enable_if<std::is_signed<T>::value, T>::type toNumber(
       v > static_cast<int64_t>((std::numeric_limits<T>::max)())) {
     throw std::out_of_range(value);
   }
-  return static_cast<T>(v * m);
+  return static_cast<T>(v * m / d);
 }
 
 // convert a string into a number, base version for unsigned integer types
 template <typename T>
 inline typename std::enable_if<std::is_unsigned<T>::value, T>::type toNumber(
-    std::string value) {
+    std::string value, T base) {
   auto n = value.size();
   uint64_t m = 1;
+  uint64_t d = 1;
+  bool seen = false;
   if (n > 2) {
     std::string suffix = value.substr(n - 2);
 
     if (suffix == "kb" || suffix == "KB") {
       m = 1024;
       value = value.substr(0, n - 2);
+      seen = true;
     } else if (suffix == "mb" || suffix == "MB") {
       m = 1024 * 1024;
       value = value.substr(0, n - 2);
+      seen = true;
     } else if (suffix == "gb" || suffix == "GB") {
       m = 1024 * 1024 * 1024;
       value = value.substr(0, n - 2);
+      seen = true;
+    }
+  }
+  if (!seen && n > 1) {
+    std::string suffix = value.substr(n - 1);
+
+    if (suffix == "k" || suffix == "K") {
+      m = 1024;
+      value = value.substr(0, n - 1);
+    } else if (suffix == "m" || suffix == "M") {
+      m = 1024 * 1024;
+      value = value.substr(0, n - 1);
+    } else if (suffix == "g" || suffix == "G") {
+      m = 1024 * 1024 * 1024;
+      value = value.substr(0, n - 1);
+    } else if (suffix == "%") {
+      m = base;
+      d = 100;
+      value = value.substr(0, n - 1);
     }
   }
   auto v = static_cast<uint64_t>(std::stoull(value));
@@ -91,7 +137,12 @@ inline typename std::enable_if<std::is_unsigned<T>::value, T>::type toNumber(
       v > static_cast<uint64_t>((std::numeric_limits<T>::max)())) {
     throw std::out_of_range(value);
   }
-  return static_cast<T>(v * m);
+  return static_cast<T>(v * m / d);
+}
+
+template <typename T>
+inline T toNumber(std::string value) {
+  return toNumber<T>(value, static_cast<T>(1));
 }
 
 // convert a string into a number, version for double values
@@ -177,9 +228,10 @@ struct BooleanParameter : public Parameter {
       return "";
     }
     if (value == "true" || value == "false" || value == "on" ||
-        value == "off" || value == "1" || value == "0" ||
-        value == "yes" || value == "no") {
-      *ptr = (value == "true" || value == "on" || value == "1" || value == "yes");
+        value == "off" || value == "1" || value == "0" || value == "yes" ||
+        value == "no") {
+      *ptr =
+          (value == "true" || value == "on" || value == "1" || value == "yes");
       return "";
     }
     return "invalid value. expecting 'true' or 'false'";
@@ -243,13 +295,14 @@ template <typename T>
 struct NumericParameter : public Parameter {
   typedef T ValueType;
 
-  explicit NumericParameter(ValueType* ptr) : ptr(ptr) {}
+  explicit NumericParameter(ValueType* ptr) : ptr(ptr), base(1) {}
+  NumericParameter(ValueType* ptr, ValueType base) : ptr(ptr), base(base) {}
 
   std::string valueString() const override { return stringifyValue(*ptr); }
 
   std::string set(std::string const& value) override {
     try {
-      ValueType v = toNumber<ValueType>(value);
+      ValueType v = toNumber<ValueType>(value, base);
       *ptr = v;
       return "";
     } catch (...) {
@@ -262,13 +315,16 @@ struct NumericParameter : public Parameter {
   }
 
   ValueType* ptr;
+  ValueType base;
 };
 
 // concrete int16 number value type
 struct Int16Parameter : public NumericParameter<int16_t> {
   typedef int16_t ValueType;
 
-  explicit Int16Parameter(int16_t* ptr) : NumericParameter<int16_t>(ptr) {}
+  explicit Int16Parameter(ValueType* ptr) : NumericParameter<ValueType>(ptr) {}
+  Int16Parameter(ValueType* ptr, ValueType base)
+      : NumericParameter<ValueType>(ptr, base) {}
 
   std::string name() const override { return "int16"; }
 };
@@ -277,7 +333,9 @@ struct Int16Parameter : public NumericParameter<int16_t> {
 struct UInt16Parameter : public NumericParameter<uint16_t> {
   typedef uint16_t ValueType;
 
-  explicit UInt16Parameter(ValueType* ptr) : NumericParameter<uint16_t>(ptr) {}
+  explicit UInt16Parameter(ValueType* ptr) : NumericParameter<ValueType>(ptr) {}
+  UInt16Parameter(ValueType* ptr, ValueType base)
+      : NumericParameter<ValueType>(ptr, base) {}
 
   std::string name() const override { return "uint16"; }
 };
@@ -286,7 +344,9 @@ struct UInt16Parameter : public NumericParameter<uint16_t> {
 struct Int32Parameter : public NumericParameter<int32_t> {
   typedef int32_t ValueType;
 
-  explicit Int32Parameter(ValueType* ptr) : NumericParameter<int32_t>(ptr) {}
+  explicit Int32Parameter(ValueType* ptr) : NumericParameter<ValueType>(ptr) {}
+  Int32Parameter(ValueType* ptr, ValueType base)
+      : NumericParameter<ValueType>(ptr, base) {}
 
   std::string name() const override { return "int32"; }
 };
@@ -295,7 +355,9 @@ struct Int32Parameter : public NumericParameter<int32_t> {
 struct UInt32Parameter : public NumericParameter<uint32_t> {
   typedef uint32_t ValueType;
 
-  explicit UInt32Parameter(ValueType* ptr) : NumericParameter<uint32_t>(ptr) {}
+  explicit UInt32Parameter(ValueType* ptr) : NumericParameter<ValueType>(ptr) {}
+  UInt32Parameter(ValueType* ptr, ValueType base)
+      : NumericParameter<ValueType>(ptr, base) {}
 
   std::string name() const override { return "uint32"; }
 };
@@ -304,7 +366,9 @@ struct UInt32Parameter : public NumericParameter<uint32_t> {
 struct Int64Parameter : public NumericParameter<int64_t> {
   typedef int64_t ValueType;
 
-  explicit Int64Parameter(ValueType* ptr) : NumericParameter<int64_t>(ptr) {}
+  explicit Int64Parameter(ValueType* ptr) : NumericParameter<ValueType>(ptr) {}
+  Int64Parameter(ValueType* ptr, ValueType base)
+      : NumericParameter<ValueType>(ptr, base) {}
 
   std::string name() const override { return "int64"; }
 };
@@ -313,7 +377,9 @@ struct Int64Parameter : public NumericParameter<int64_t> {
 struct UInt64Parameter : public NumericParameter<uint64_t> {
   typedef uint64_t ValueType;
 
-  explicit UInt64Parameter(ValueType* ptr) : NumericParameter<uint64_t>(ptr) {}
+  explicit UInt64Parameter(ValueType* ptr) : NumericParameter<ValueType>(ptr) {}
+  UInt64Parameter(ValueType* ptr, ValueType base)
+      : NumericParameter<ValueType>(ptr, base) {}
 
   std::string name() const override { return "uint64"; }
 };

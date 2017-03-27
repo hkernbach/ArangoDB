@@ -23,6 +23,7 @@
 #include "ApplicationFeatures/JemallocFeature.h"
 
 #include "Basics/FileUtils.h"
+#include "Basics/process-utils.h"
 #include "Logger/Logger.h"
 #include "ProgramOptions/ProgramOptions.h"
 
@@ -32,11 +33,11 @@ using namespace arangodb;
 using namespace arangodb::basics;
 using namespace arangodb::options;
 
-char JemallocFeature::_staticPath[PATH_MAX];
+char JemallocFeature::_staticPath[PATH_MAX + 1];
 
 JemallocFeature::JemallocFeature(
     application_features::ApplicationServer* server)
-    : ApplicationFeature(server, "Jemalloc") {
+    : ApplicationFeature(server, "Jemalloc"), _defaultPath("./") {
   setOptional(false);
   requiresElevatedPrivileges(false);
 }
@@ -45,7 +46,7 @@ void JemallocFeature::collectOptions(std::shared_ptr<ProgramOptions> options) {
   options->addSection("vm", "Virtual memory");
 
   options->addOption("--vm.resident-limit", "resident limit in bytes",
-                     new UInt64Parameter(&_residentLimit));
+                     new UInt64Parameter(&_residentLimit, TRI_PhysicalMemory));
 
   options->addOption("--vm.path", "path to the directory for vm files",
                      new StringParameter(&_path));
@@ -61,30 +62,39 @@ void JemallocFeature::validateOptions(std::shared_ptr<ProgramOptions>) {
     _residentLimit = MIN_LIMIT;
   }
 
-  if (_path.empty()) {
-    _path = ".";
+  if (!_path.empty()) {
+    FileUtils::makePathAbsolute(_path);
+    FileUtils::normalizePath(_path);
+    _path += TRI_DIR_SEPARATOR_STR;
   }
 
-  FileUtils::makePathAbsolute(_path);
-  FileUtils::normalizePath(_path);
-
-  _path += TRI_DIR_SEPARATOR_STR;
-
   LOG_TOPIC(INFO, Logger::MEMORY) << "vm.resident-limit = " << _residentLimit
-                                  << ", vm.path = " << _path;
+                                  << ", vm.path = '" << _path << "'";
 }
 
 extern "C" void adb_jemalloc_set_limit(size_t limit, char const* path);
 
-void JemallocFeature::prepare() {
+void JemallocFeature::setDefaultPath(std::string const& path) {
+  _defaultPath = path;
+  FileUtils::makePathAbsolute(_defaultPath);
+  FileUtils::normalizePath(_defaultPath);
+
+  _defaultPath += TRI_DIR_SEPARATOR_STR;
+  _defaultPath += "vm";
+  _defaultPath += TRI_DIR_SEPARATOR_STR;
+}
+
+void JemallocFeature::start() {
   *_staticPath = '\0';
 
   if (0 < _residentLimit) {
     if (_path.empty()) {
-      strncat(_staticPath, "./", PATH_MAX);
+      strncat(_staticPath, _defaultPath.c_str(), PATH_MAX);
     } else {
       strncat(_staticPath, _path.c_str(), PATH_MAX);
     }
+
+    LOG_TOPIC(DEBUG, Logger::MEMORY) << "using path " << _staticPath;
 
     if (!FileUtils::isDirectory(_staticPath)) {
       if (!FileUtils::createDirectory(_staticPath, 0700)) {

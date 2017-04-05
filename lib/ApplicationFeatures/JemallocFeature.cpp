@@ -43,6 +43,7 @@ JemallocFeature::JemallocFeature(
 }
 
 void JemallocFeature::collectOptions(std::shared_ptr<ProgramOptions> options) {
+#if ARANGODB_HAVE_JEMALLOC
   options->addSection("vm", "Virtual memory");
 
   options->addOption("--vm.resident-limit", "resident limit in bytes",
@@ -50,14 +51,16 @@ void JemallocFeature::collectOptions(std::shared_ptr<ProgramOptions> options) {
 
   options->addOption("--vm.path", "path to the directory for vm files",
                      new StringParameter(&_path));
+#endif
 }
 
 void JemallocFeature::validateOptions(std::shared_ptr<ProgramOptions>) {
+#if ARANGODB_HAVE_JEMALLOC
   static uint64_t MIN_LIMIT = 512 * 1024 * 1024;
 
   if (0 < _residentLimit && _residentLimit < MIN_LIMIT) {
-    LOG_TOPIC(INFO, Logger::MEMORY) << "vm.resident-limit of " << _residentLimit
-                                    << " is to small, using " << MIN_LIMIT;
+    LOG_TOPIC(WARN, Logger::MEMORY) << "vm.resident-limit of " << _residentLimit
+                                    << " is too small, using " << MIN_LIMIT;
 
     _residentLimit = MIN_LIMIT;
   }
@@ -68,11 +71,17 @@ void JemallocFeature::validateOptions(std::shared_ptr<ProgramOptions>) {
     _path += TRI_DIR_SEPARATOR_STR;
   }
 
-  LOG_TOPIC(INFO, Logger::MEMORY) << "vm.resident-limit = " << _residentLimit
-                                  << ", vm.path = '" << _path << "'";
+  LOG_TOPIC(INFO, Logger::MEMORY)
+      << "using jemalloc with vm.resident-limit = " << _residentLimit
+      << ", vm.path = '" << _path << "'";
+#else
+  LOG_TOPIC(INFO, Logger::MEMORY) << "jemalloc has been disabled";
+#endif
 }
 
+#if ARANGODB_HAVE_JEMALLOC
 extern "C" void adb_jemalloc_set_limit(size_t limit, char const* path);
+#endif
 
 void JemallocFeature::setDefaultPath(std::string const& path) {
   _defaultPath = path;
@@ -85,6 +94,7 @@ void JemallocFeature::setDefaultPath(std::string const& path) {
 }
 
 void JemallocFeature::start() {
+#if ARANGODB_HAVE_JEMALLOC
   *_staticPath = '\0';
 
   if (0 < _residentLimit) {
@@ -107,4 +117,5 @@ void JemallocFeature::start() {
 
     adb_jemalloc_set_limit(_residentLimit, _staticPath);
   }
+#endif
 }

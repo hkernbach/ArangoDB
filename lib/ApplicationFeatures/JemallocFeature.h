@@ -43,7 +43,9 @@ class JemallocFeature final : public application_features::ApplicationFeature {
   std::string _path;
   std::string _defaultPath;
 
+#if ARANGODB_HAVE_JEMALLOC
   static char _staticPath[PATH_MAX + 1];
+#endif
 };
 }
 

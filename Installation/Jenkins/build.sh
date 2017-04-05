@@ -617,7 +617,7 @@ if test -n "${TARGET_DIR}";  then
     else
         # we re-use a generic cpack tarball:
         ${PACKAGE_MAKE} TGZ_package
-        PKG_NAME=`grep CPACK_PACKAGE_FILE_NAME CPackConfig.cmake  |sed -e 's;".$;;' -e 's;.*";;'`
+        PKG_NAME=`grep CPACK_PACKAGE_FILE_NAME CPackConfig.cmake | sed 's/\r//' |sed -e 's;".$;;' -e 's;.*";;'`
 
         
         TARFILE=arangodb-`uname`${TAR_SUFFIX}.tar.gz
@@ -642,8 +642,12 @@ if test -n "${TARGET_DIR}";  then
              arangosh/.keepme
         )
 
+        if test -n "${ENTERPRISE_GIT_URL}" ; then
+            (cd ${SOURCE_DIR}/enterprise; tar -u -f ${TARFILE_TMP} js)
+        fi
+
         if test "`uname -o||true`" == "Cygwin"; then
-            SSLDIR=`grep FIND_PACKAGE_MESSAGE_DETAILS_OpenSSL CMakeCache.txt  |sed -e "s/.*optimized;//"  -e "s/;.*//" -e "s;/lib.*lib;;"  -e "s;\([a-zA-Z]*\):;/cygdrive/\1;"`
+            SSLDIR=`grep FIND_PACKAGE_MESSAGE_DETAILS_OpenSSL CMakeCache.txt | sed 's/\r//' |sed -e "s/.*optimized;//"  -e "s/;.*//" -e "s;/lib.*lib;;"  -e "s;\([a-zA-Z]*\):;/cygdrive/\1;"`
             DLLS=`find ${SSLDIR} -name \*.dll |grep -i release`
             cp ${DLLS} bin/${BUILD_CONFIG}
         fi

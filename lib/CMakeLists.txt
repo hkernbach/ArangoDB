@@ -133,11 +133,12 @@ add_library(${LIB_ARANGO} STATIC
   Basics/Exceptions.cpp
   Basics/FileUtils.cpp
   Basics/HybridLogicalClock.cpp
+  Basics/LdapUrlParser.cpp
   Basics/LocalTaskQueue.cpp
   Basics/Mutex.cpp
   Basics/MutexLocker.cpp
   Basics/Nonce.cpp
-  Basics/ReadWriteLock.cpp
+  Basics/OpenFilesTracker.cpp
   Basics/ReadWriteLockCPP11.cpp
   Basics/StaticStrings.cpp
   Basics/StringBuffer.cpp
@@ -145,7 +146,6 @@ add_library(${LIB_ARANGO} STATIC
   Basics/StringRef.cpp
   Basics/StringUtils.cpp
   Basics/Thread.cpp
-  Basics/Timers.cpp
   Basics/Utf8Helper.cpp
   Basics/VelocyPackDumper.cpp
   Basics/VelocyPackHelper.cpp

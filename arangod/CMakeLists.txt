@@ -133,6 +133,7 @@ SET(ARANGOD_SOURCES
   Aql/FixedVarExpressionContext.cpp
   Aql/Function.cpp
   Aql/Functions.cpp
+  Aql/Geo.cpp
   Aql/Graphs.cpp
   Aql/IndexBlock.cpp
   Aql/IndexNode.cpp

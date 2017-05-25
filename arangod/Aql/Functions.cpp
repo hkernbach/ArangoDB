@@ -2137,14 +2137,14 @@ AqlValue Functions::GeoPolygon(arangodb::aql::Query* query,
 
   AqlValue geoArray = ExtractFunctionParameterValue(trx, parameters, 0);
   
-  if (!geoArray.isArray() {
+  if (!geoArray.isArray()) {
     RegisterWarning(query, "GEO_POLYGON",
                     TRI_ERROR_QUERY_ARRAY_EXPECTED);
     return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
   }
   if (geoArray.length() < 4) {
     RegisterWarning(query, "GEO_POLYGON",
-                    TRI_ERROR_QUERY_ARRAY_LENGTH_INVALID);
+                    TRI_ERROR_QUERY_ARRAY_EXPECTED); // CHANGE TO LENGTH ERROR
     return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
   }
   

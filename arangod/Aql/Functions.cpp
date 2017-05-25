@@ -52,6 +52,7 @@
 
 using namespace arangodb;
 using namespace arangodb::aql;
+using namespace arangodb::velocypack;
 
 /// @brief convert a number value into an AqlValue
 static AqlValue NumberValue(transaction::Methods* trx, int value) {
@@ -2070,6 +2071,134 @@ AqlValue Functions::Distance(arangodb::aql::Query* query,
   double const EARTHRADIAN = 6371000.0; // metres
 
   return NumberValue(trx, EARTHRADIAN * c, true);
+}
+
+/// @brief function GEO_POINT
+AqlValue Functions::GeoPoint(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "running here geo point";
+  ValidateParameters(parameters, "GEO_POINT", 2, 2);
+  
+  size_t const n = parameters.size();
+
+  if (n < 1) {
+    // no parameters
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+
+  AqlValue lon1 = ExtractFunctionParameterValue(trx, parameters, 0);
+  AqlValue lat1 = ExtractFunctionParameterValue(trx, parameters, 1);
+
+  // non-numeric input
+  if (!lat1.isNumber() || !lon1.isNumber()) {
+    RegisterWarning(query, "GEO_POINT",
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+
+  bool failed;
+  bool error = false;
+  double lon1Value = lon1.toDouble(trx, failed);
+  error |= failed;
+  double lat1Value = lat1.toDouble(trx, failed);
+  error |= failed;
+  
+  if (error) {
+    RegisterWarning(query, "GEO_POINT",
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+  
+  Builder b;
+
+  b.add(Value(ValueType::Object));
+  b.add("type", Value("Point"));
+  b.add("coordinates", Value(ValueType::Array));
+  b.add(Value(lon1Value));
+  b.add(Value(lat1Value));
+  b.close();
+  b.close();
+  return AqlValue(b);
+}
+
+/// @brief function GEO_POLYGON
+AqlValue Functions::GeoPolygon(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  ValidateParameters(parameters, "GEO_POLYGON", 1, 1);
+  
+  size_t const n = parameters.size();
+
+  if (n < 1) {
+    // no parameters
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+
+  AqlValue geoArray = ExtractFunctionParameterValue(trx, parameters, 0);
+  
+  if (!geoArray.isArray() {
+    RegisterWarning(query, "GEO_POLYGON",
+                    TRI_ERROR_QUERY_ARRAY_EXPECTED);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+  if (geoArray.length() < 4) {
+    RegisterWarning(query, "GEO_POLYGON",
+                    TRI_ERROR_QUERY_ARRAY_LENGTH_INVALID);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+  
+  Builder b;
+
+  b.add(Value(ValueType::Object));
+  b.add("type", Value("Polygon"));
+  b.add("coordinates", Value(ValueType::Array));
+  
+  AqlValueMaterializer materializer(trx);
+  VPackSlice s = materializer.slice(geoArray, false);
+  for (auto const& v : VPackArrayIterator(s)) {
+    if (v.isArray()) {
+      b.openArray();
+      for (auto const& coord : VPackArrayIterator(v)) {
+        if (coord.isNumber()) {
+          b.add(Value(coord.getNumber<double>()));
+        } else {
+          RegisterInvalidArgumentWarning(query, "GEO_POLYGON");
+          return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+        }
+      }
+      b.close();
+    } else {
+      RegisterInvalidArgumentWarning(query, "GEO_POLYGON");
+      return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+    }
+  }
+
+  // TODO: Was passiert wenn ich das object nicht close und die funktion vorher returned?
+  
+  b.close();
+  b.close();
+  return AqlValue(b);
+}
+
+AqlValue Functions::GeoMultiPoint(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+}
+
+AqlValue Functions::GeoLineString(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+}
+
+AqlValue Functions::GeoMultiLineString(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+}
+
+AqlValue Functions::GeoMultiPolygon(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
 }
 
 /// @brief function FLATTEN

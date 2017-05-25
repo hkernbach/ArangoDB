@@ -115,6 +115,8 @@ void AqlFunctionFeature::prepare() {
   addListFunctions();
   addDocumentFunctions();
   addGeoFunctions();
+  addGeometryFunctions();
+  addGeometryTypeFunctions();
   addDateFunctions();
   addMiscFunctions();
   addStorageEngineFunctions();
@@ -433,6 +435,26 @@ void AqlFunctionFeature::addGeoFunctions() {
        true, false, true});
   add({"IS_IN_POLYGON", "AQL_IS_IN_POLYGON", "l,ln|nb", true, true, false, true,
        true});
+}
+
+void AqlFunctionFeature::addGeometryFunctions() {
+  // geometry functions
+}
+
+void AqlFunctionFeature::addGeometryTypeFunctions() {
+  // geometry types
+  add({"GEO_POINT", "AQL_GEO_POINT", "n,n", true, true, false, true, true,
+       &Functions::GeoPoint});
+  add({"GEO_MULTIPOINT", "AQL_GEO_MULTIPOINT", "l", true, true, false, true, true,
+       &Functions::GeoMultiPoint});
+  add({"GEO_LINESTRING", "AQL_GEO_LINESTRING", "l", true, true, false, true, true,
+       &Functions::GeoLineString});
+  add({"GEO_POINT", "AQL_GEO_MULTILINESTRING", "l", true, true, false, true, true,
+       &Functions::GeoMultiLineString});
+  add({"GEO_POLYGON", "AQL_GEO_POLYGON", "l", true, true, false, true, true,
+       &Functions::GeoPolygon});
+  add({"GEO_POLYGON", "AQL_GEO_MULTIPOLYGON", "l", true, true, false, true, true,
+       &Functions::GeoMultiPolygon});
 }
 
 void AqlFunctionFeature::addDateFunctions() {

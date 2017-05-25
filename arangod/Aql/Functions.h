@@ -192,6 +192,18 @@ struct Functions {
                                 VPackFunctionParameters const&);
    static AqlValue Distance(arangodb::aql::Query*, transaction::Methods*,
                             VPackFunctionParameters const&);
+   static AqlValue GeoPoint(arangodb::aql::Query*, transaction::Methods*,
+                            VPackFunctionParameters const&);
+   static AqlValue GeoPolygon(arangodb::aql::Query*, transaction::Methods*,
+                            VPackFunctionParameters const&);
+   static AqlValue GeoMultiPoint(arangodb::aql::Query*, transaction::Methods*,
+                            VPackFunctionParameters const&);
+   static AqlValue GeoLineString(arangodb::aql::Query*, transaction::Methods*,
+                            VPackFunctionParameters const&);
+   static AqlValue GeoMultiLineString(arangodb::aql::Query*, transaction::Methods*,
+                            VPackFunctionParameters const&);
+   static AqlValue GeoMultiPolygon(arangodb::aql::Query*, transaction::Methods*,
+                            VPackFunctionParameters const&);
    static AqlValue Flatten(arangodb::aql::Query*, transaction::Methods*,
                            VPackFunctionParameters const&);
    static AqlValue Zip(arangodb::aql::Query*, transaction::Methods*,

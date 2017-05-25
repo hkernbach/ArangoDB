@@ -25,7 +25,6 @@ ERROR_CANNOT_CREATE_DIRECTORY,19,"cannot create directory","Will be raised when 
 ERROR_CANNOT_CREATE_TEMP_FILE,20,"cannot create temporary file","Will be raised when an attempt to create a temporary file fails."
 ERROR_REQUEST_CANCELED,21,"canceled request","Will be raised when a request is canceled by the user."
 ERROR_DEBUG,22,"intentional debug error","Will be raised intentionally during debugging."
-ERROR_NOT_YET_IMPLEMENTED,23,"not yet implemented","Will be raised when hitting an unimplemented feature that will be implemented soon."
 ERROR_IP_ADDRESS_INVALID,25,"IP address is invalid","Will be raised when the structure of an IP address is invalid."
 ERROR_FILE_EXISTS,27,"file exists","Will be raised when a file already exists."
 ERROR_LOCKED,28,"locked","Will be raised when a resource or an operation is locked."
@@ -198,6 +197,10 @@ ERROR_CLUSTER_AGENCY_STRUCTURE_INVALID,1480,"Invalid agency structure","The stru
 ERROR_CLUSTER_AQL_COLLECTION_OUT_OF_SYNC,1481,"collection is out of sync","Will be raised if a collection needed during query execution is out of sync. This currently can only happen when using satellite collections"
 ERROR_CLUSTER_COULD_NOT_CREATE_INDEX_IN_PLAN,1482,"could not create index in plan","Will be raised when a coordinator in a cluster cannot create an entry for a new index in the Plan hierarchy in the agency."
 ERROR_CLUSTER_COULD_NOT_DROP_INDEX_IN_PLAN,1483,"could not drop index in plan","Will be raised when a coordinator in a cluster cannot remove an index from the Plan hierarchy in the agency."
+ERROR_CLUSTER_CHAIN_OF_DISTRIBUTESHARDSLIKE,1484,"chain of distributeShardsLike references","Will be raised if one tries to create a collection with a distributeShardsLike attribute which points to another collection that also has one."
+ERROR_CLUSTER_MUST_NOT_DROP_COLL_OTHER_DISTRIBUTESHARDSLIKE,1485,"must not drop collection while another has a distributeShardsLike attribute pointing to it","Will be raised if one tries to drop a collection to which another collection points with its distributeShardsLike attribute."
+ERROR_CLUSTER_UNKNOWN_DISTRIBUTESHARDSLIKE,1486,"must not have a distributeShardsLike attribute pointing to an unknown collection","Will be raised if one tries to create a collection which points to an unknown collection in its distributeShardsLike attribute."
+
 
 ################################################################################
 ## ArangoDB query errors
@@ -293,6 +296,21 @@ ERROR_SERVICE_DOWNLOAD_FAILED,1752,"service download failed","Will be raised whe
 ERROR_SERVICE_UPLOAD_FAILED,1753,"service upload failed","Will be raised when a service upload from the client to the ArangoDB server failed."
 
 ################################################################################
+## LDAP errors
+################################################################################
+
+ERROR_LDAP_CANNOT_INIT,1800,"cannot init a LDAP connection","can not init a LDAP connection"
+ERROR_LDAP_CANNOT_SET_OPTION,1801,"cannot set a LDAP option","can not set a LDAP option"
+ERROR_LDAP_CANNOT_BIND,1802,"cannot bind to a LDAP server","can not bind to a LDAP server"
+ERROR_LDAP_CANNOT_UNBIND,1803,"cannot unbind from a LDAP server","can not unbind from a LDAP server"
+ERROR_LDAP_CANNOT_SEARCH,1804,"cannot issue a LDAP search","can not search the LDAP server"
+ERROR_LDAP_CANNOT_START_TLS,1805,"cannot start a TLS LDAP session","can not star a TLS LDAP session"
+ERROR_LDAP_FOUND_NO_OBJECTS,1806,"LDAP didn't found any objects","LDAP didn't found any objects with the specified search query"
+ERROR_LDAP_NOT_ONE_USER_FOUND,1807,"LDAP found zero ore more than one user","LDAP found zero ore more than one user"
+ERROR_LDAP_USER_NOT_IDENTIFIED,1808,"LDAP found a user, but its not the desired one","LDAP found a user, but its not the desired one"
+ERROR_LDAP_INVALID_MODE,1820,"invalid ldap mode","cant distinguish a valid mode for provided ldap configuration"
+
+################################################################################
 ## Task errors
 ################################################################################
 
@@ -380,6 +398,7 @@ ERROR_SERVICE_UNKNOWN_SCRIPT,3016,"unknown script","The service does not have a 
 ################################################################################
 
 ERROR_MODULE_NOT_FOUND,3100,"cannot locate module","The module path could not be resolved."
+ERROR_MODULE_SYNTAX_ERROR,3101,"syntax error in module","The module could not be parsed because of a syntax error."
 ERROR_MODULE_FAILURE,3103,"failed to invoke module","Failed to invoke the module in its context."
 
 ################################################################################
@@ -402,6 +421,12 @@ ERROR_AGENCY_INFORM_MUST_CONTAIN_ID,20013,"Inform message must contain string pa
 ERROR_AGENCY_INFORM_MUST_CONTAIN_ACTIVE,20014,"Inform message must contain array 'active'","The inform message in the agency must contain an array 'active'."
 ERROR_AGENCY_INFORM_MUST_CONTAIN_POOL,20015,"Inform message must contain object 'pool'","The inform message in the agency must contain an object 'pool'."
 ERROR_AGENCY_INQUIRE_CLIENT_ID_MUST_BE_STRING,20020,"Inquiry failed","Inquiry by clientId failed"
+
+################################################################################
+## Supervision errors
+################################################################################
+
+ERROR_SUPERVISION_GENERAL_FAILURE,20501,"general supervision failure","General supervision failure."
 
 ################################################################################
 ## Dispatcher errors

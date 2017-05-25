@@ -644,6 +644,10 @@ var checkIfMayBeDropped = function (colName, graphName, graphs) {
   var result = true;
   graphs.forEach(
     function (graph) {
+      if (result === false) {
+        // Short circuit
+        return;
+      }
       if (graph._key === graphName) {
         return;
       }
@@ -1753,8 +1757,44 @@ class Graph {
 // / @brief was docuBlock JSF_general_graph_connectingEdges
 // //////////////////////////////////////////////////////////////////////////////
 
-  _getConnectingEdges (vertexExample1, vertexExample2, options) {
+  _connectingEdges (vertexExample1, vertexExample2, options) {
     options = options || {};
+    if (options.vertex1CollectionRestriction) {
+      if (!Array.isArray(options.vertex1CollectionRestriction)) {
+        options.vertex1CollectionRestriction = [ options.vertex1CollectionRestriction ];
+      }
+    }
+    if (options.vertex2CollectionRestriction) {
+      if (!Array.isArray(options.vertex2CollectionRestriction)) {
+        options.vertex2CollectionRestriction = [ options.vertex2CollectionRestriction ];
+      }
+    }
+
+    /*var query = `
+      ${generateWithStatement(this, optionsVertex1.hasOwnProperty('edgeCollectionRestriction') ? optionsVertex1 : optionsVertex2)}
+      ${transformExampleToAQL(vertex1Example, Object.keys(this.__vertexCollections), bindVars, 'left')}
+        LET leftNeighbors = (FOR v IN ${optionsVertex1.minDepth || 1}..${optionsVertex1.maxDepth || 1} ${optionsVertex1.direction || 'ANY'} left
+          ${buildEdgeCollectionRestriction(optionsVertex1.edgeCollectionRestriction, bindVars, this)}
+          OPTIONS {bfs: true, uniqueVertices: "global"} 
+          ${Array.isArray(optionsVertex1.vertexCollectionRestriction) && optionsVertex1.vertexCollectionRestriction.length > 0 ? buildVertexCollectionRestriction(optionsVertex1.vertexCollectionRestriction, 'v') : ''} 
+          RETURN v)
+        ${transformExampleToAQL(vertex2Example, Object.keys(this.__vertexCollections), bindVars, 'right')}
+          FILTER right != left
+          LET rightNeighbors = (FOR v IN ${optionsVertex2.minDepth || 1}..${optionsVertex2.maxDepth || 1} ${optionsVertex2.direction || 'ANY'} right
+          ${buildEdgeCollectionRestriction(optionsVertex2.edgeCollectionRestriction, bindVars, this)}
+          OPTIONS {bfs: true, uniqueVertices: "global"} 
+          ${Array.isArray(optionsVertex2.vertexCollectionRestriction) && optionsVertex2.vertexCollectionRestriction.length > 0 ? buildVertexCollectionRestriction(optionsVertex2.vertexCollectionRestriction, 'v') : ''} 
+          RETURN v)
+          LET neighbors = INTERSECTION(leftNeighbors, rightNeighbors)
+          FILTER LENGTH(neighbors) > 0 `;
+    if (optionsVertex1.includeData === true || optionsVertex2.includeData === true) {
+      query += `RETURN {left : left, right: right, neighbors: neighbors}`;
+    } else {
+      query += `RETURN {left : left._id, right: right._id, neighbors: neighbors[*]._id}`;
+    }
+    return db._query(query, bindVars).toArray();*/
+
+
     // TODO
     return [];
   }
@@ -2008,44 +2048,47 @@ exports._drop = function (graphId, dropCollections) {
 
   if (dropCollections === true) {
     graphs = exports._listObjects();
+    // Here we collect all collections
+    // that are leading for distribution
+    var initialCollections = new Set();
+    let dropColCB = (name) => {
+      if (checkIfMayBeDropped(name, graph._key, graphs)) {
+        try {
+          let colObj = db[name];
+          if (colObj !== undefined) {
+            // If it is undefined the collection is gone already
+            if (colObj.properties().distributeShardsLike !== undefined) {
+              db._drop(name);
+            } else {
+              initialCollections.add(name);
+            }
+          }
+        } catch (ignore) {}
+      }
+    };
+    // drop orphans
+    if (!graph.orphanCollections) {
+      graph.orphanCollections = [];
+    }
+    graph.orphanCollections.forEach(dropColCB);
     var edgeDefinitions = graph.edgeDefinitions;
     edgeDefinitions.forEach(
       function (edgeDefinition) {
         var from = edgeDefinition.from;
         var to = edgeDefinition.to;
         var collection = edgeDefinition.collection;
-        if (checkIfMayBeDropped(collection, graph._key, graphs)) {
-          db._drop(collection);
-        }
-        from.forEach(
-          function (col) {
-            if (checkIfMayBeDropped(col, graph._key, graphs)) {
-              db._drop(col);
-            }
-          }
-        );
-        to.forEach(
-          function (col) {
-            if (checkIfMayBeDropped(col, graph._key, graphs)) {
-              db._drop(col);
-            }
-          }
-        );
+        dropColCB(edgeDefinition.collection);
+        from.forEach(dropColCB);
+        to.forEach(dropColCB);
       }
     );
-    // drop orphans
-    if (!graph.orphanCollections) {
-      graph.orphanCollections = [];
+    for (let c of initialCollections) {
+      try {
+        db._drop(c);
+      } catch (e) {
+        console.error("Failed to Drop: '" + c + "' reason: " + e.message);
+      }
     }
-    graph.orphanCollections.forEach(
-      function (oC) {
-        if (checkIfMayBeDropped(oC, graph._key, graphs)) {
-          try {
-            db._drop(oC);
-          } catch (ignore) {}
-        }
-      }
-    );
   }
 
   gdb.remove(graphId);

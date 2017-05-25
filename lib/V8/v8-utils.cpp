@@ -661,7 +661,7 @@ void JS_Download(v8::FunctionCallbackInfo<v8::Value> const& args) {
   rest::RequestType method = rest::RequestType::GET;
   bool returnBodyOnError = false;
   int maxRedirects = 5;
-  uint64_t sslProtocol = TLS_V1;
+  uint64_t sslProtocol = TLS_V12;
 
   if (args.Length() > 2) {
     if (!args[2]->IsObject()) {
@@ -854,12 +854,13 @@ void JS_Download(v8::FunctionCallbackInfo<v8::Value> const& args) {
     if (connection == nullptr) {
       TRI_V8_THROW_EXCEPTION_MEMORY();
     }
-
-    SimpleHttpClient client(connection.get(), timeout, false);
-    client.setSupportDeflate(false);
+    
+    SimpleHttpClientParams params(timeout, false);
+    params.setSupportDeflate(false);
     // security by obscurity won't work. Github requires a useragent nowadays.
-    client.setExposeArangoDB(true);
-
+    params.setExposeArangoDB(true);
+    SimpleHttpClient client(connection.get(), params);
+    
     v8::Handle<v8::Object> result = v8::Object::New(isolate);
 
     if (numRedirects > 0) {
@@ -1641,6 +1642,46 @@ static void JS_ZipFile(v8::FunctionCallbackInfo<v8::Value> const& args) {
   }
 
   TRI_V8_THROW_EXCEPTION(res);
+  TRI_V8_TRY_CATCH_END
+}
+
+
+static void JS_Adler32(v8::FunctionCallbackInfo<v8::Value> const& args) {
+  TRI_V8_TRY_CATCH_BEGIN(isolate);
+  v8::HandleScope scope(isolate);
+
+  // extract arguments
+  if (args.Length() < 1) {
+    TRI_V8_THROW_EXCEPTION_USAGE("adler32(<filename>, <useSigned>)");
+  }
+
+  bool useSigned = false;  // default is unsigned
+  if (args.Length() > 1) {
+    useSigned = TRI_ObjectToBoolean(args[1]);
+  }
+
+  TRI_Utf8ValueNFC name(TRI_UNKNOWN_MEM_ZONE, args[0]);
+
+  if (*name == nullptr) {
+    TRI_V8_THROW_TYPE_ERROR("<filename> must be a UTF-8 string");
+  }
+
+  uint32_t chksum = 0;
+  int res = TRI_Adler32(*name, chksum);
+
+  if (res != TRI_ERROR_NO_ERROR) {
+    TRI_V8_THROW_EXCEPTION(res);
+  }
+
+  v8::Handle<v8::Value> result;
+
+  if (useSigned) {
+    result = v8::Number::New(isolate, static_cast<int32_t>(chksum));
+  } else {
+    result = v8::Number::New(isolate, chksum);
+  }
+
+  TRI_V8_RETURN(result);
   TRI_V8_TRY_CATCH_END
 }
 
@@ -2549,7 +2590,7 @@ static void JS_Write(v8::FunctionCallbackInfo<v8::Value> const& args) {
   TRI_V8_TRY_CATCH_BEGIN(isolate)
   v8::HandleScope scope(isolate);
 
-  if (args.Length() != 2) {
+  if (args.Length() < 2) {
     TRI_V8_THROW_EXCEPTION_USAGE("write(<filename>, <content>)");
   }
 
@@ -2557,6 +2598,11 @@ static void JS_Write(v8::FunctionCallbackInfo<v8::Value> const& args) {
 
   if (*name == nullptr) {
     TRI_V8_THROW_TYPE_ERROR("<filename> must be a string");
+  }
+
+  bool flush = false;
+  if (args.Length() > 2) {
+    flush = TRI_ObjectToBoolean(args[2]);
   }
 
   if (args[1]->IsObject() && V8Buffer::hasInstance(isolate, args[1])) {
@@ -2575,6 +2621,9 @@ static void JS_Write(v8::FunctionCallbackInfo<v8::Value> const& args) {
 
     if (file.is_open()) {
       file.write(data, size);
+      if (flush) {
+        file.flush();
+      }
       file.close();
       TRI_V8_RETURN_TRUE();
     }
@@ -2591,6 +2640,9 @@ static void JS_Write(v8::FunctionCallbackInfo<v8::Value> const& args) {
 
     if (file.is_open()) {
       file << *content;
+      if (flush) {
+        file.flush();
+      }
       file.close();
       TRI_V8_RETURN_TRUE();
     }
@@ -3996,9 +4048,9 @@ static void JS_SplitWordlist(v8::FunctionCallbackInfo<v8::Value> const& args) {
     lowerCase = TRI_ObjectToBoolean(args[3]);
   }
 
-  std::vector<std::string> wordList;
+  std::set<std::string> wordList;
 
-  if (!Utf8Helper::DefaultUtf8Helper.getWords(
+  if (!Utf8Helper::DefaultUtf8Helper.tokenize(
           wordList, stringToTokenize, minLength, maxLength, lowerCase)) {
     TRI_V8_THROW_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL, "SplitWordlist failed!");
   }
@@ -4006,11 +4058,11 @@ static void JS_SplitWordlist(v8::FunctionCallbackInfo<v8::Value> const& args) {
   v8::Handle<v8::Array> v8WordList =
       v8::Array::New(isolate, static_cast<int>(wordList.size()));
 
-  size_t const n = static_cast<uint32_t>(wordList.size());
-
-  for (uint32_t i = 0; i < n; i++) {
-    v8::Handle<v8::String> oneWord = TRI_V8_STD_STRING(wordList[i]);
+  uint32_t i = 0;
+  for (std::string const& word : wordList) {
+    v8::Handle<v8::String> oneWord = TRI_V8_STD_STRING(word);
     v8WordList->Set(i, oneWord);
+    i++;
   }
 
   TRI_V8_RETURN(v8WordList);
@@ -4551,6 +4603,8 @@ void TRI_InitV8Utils(v8::Isolate* isolate, v8::Handle<v8::Context> context,
       isolate, TRI_V8_ASCII_STRING("FS_UNZIP_FILE"), JS_UnzipFile);
   TRI_AddGlobalFunctionVocbase(isolate,
                                TRI_V8_ASCII_STRING("FS_ZIP_FILE"), JS_ZipFile);
+  TRI_AddGlobalFunctionVocbase(isolate,
+                               TRI_V8_ASCII_STRING("FS_ADLER32"), JS_Adler32);
 
   TRI_AddGlobalFunctionVocbase(isolate,
                                TRI_V8_ASCII_STRING("SYS_APPEND"), JS_Append);

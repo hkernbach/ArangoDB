@@ -29,7 +29,6 @@ void TRI_InitializeErrorMessages () {
   REG_ERROR(ERROR_CANNOT_CREATE_TEMP_FILE, "cannot create temporary file");
   REG_ERROR(ERROR_REQUEST_CANCELED, "canceled request");
   REG_ERROR(ERROR_DEBUG, "intentional debug error");
-  REG_ERROR(ERROR_NOT_YET_IMPLEMENTED, "not yet implemented");
   REG_ERROR(ERROR_IP_ADDRESS_INVALID, "IP address is invalid");
   REG_ERROR(ERROR_FILE_EXISTS, "file exists");
   REG_ERROR(ERROR_LOCKED, "locked");
@@ -158,6 +157,9 @@ void TRI_InitializeErrorMessages () {
   REG_ERROR(ERROR_CLUSTER_AQL_COLLECTION_OUT_OF_SYNC, "collection is out of sync");
   REG_ERROR(ERROR_CLUSTER_COULD_NOT_CREATE_INDEX_IN_PLAN, "could not create index in plan");
   REG_ERROR(ERROR_CLUSTER_COULD_NOT_DROP_INDEX_IN_PLAN, "could not drop index in plan");
+  REG_ERROR(ERROR_CLUSTER_CHAIN_OF_DISTRIBUTESHARDSLIKE, "chain of distributeShardsLike references");
+  REG_ERROR(ERROR_CLUSTER_MUST_NOT_DROP_COLL_OTHER_DISTRIBUTESHARDSLIKE, "must not drop collection while another has a distributeShardsLike attribute pointing to it");
+  REG_ERROR(ERROR_CLUSTER_UNKNOWN_DISTRIBUTESHARDSLIKE, "must not have a distributeShardsLike attribute pointing to an unknown collection");
   REG_ERROR(ERROR_QUERY_KILLED, "query killed");
   REG_ERROR(ERROR_QUERY_PARSE, "%s");
   REG_ERROR(ERROR_QUERY_EMPTY, "query is empty");
@@ -215,6 +217,16 @@ void TRI_InitializeErrorMessages () {
   REG_ERROR(ERROR_SERVICE_INVALID_MOUNT, "invalid mount");
   REG_ERROR(ERROR_SERVICE_DOWNLOAD_FAILED, "service download failed");
   REG_ERROR(ERROR_SERVICE_UPLOAD_FAILED, "service upload failed");
+  REG_ERROR(ERROR_LDAP_CANNOT_INIT, "cannot init a LDAP connection");
+  REG_ERROR(ERROR_LDAP_CANNOT_SET_OPTION, "cannot set a LDAP option");
+  REG_ERROR(ERROR_LDAP_CANNOT_BIND, "cannot bind to a LDAP server");
+  REG_ERROR(ERROR_LDAP_CANNOT_UNBIND, "cannot unbind from a LDAP server");
+  REG_ERROR(ERROR_LDAP_CANNOT_SEARCH, "cannot issue a LDAP search");
+  REG_ERROR(ERROR_LDAP_CANNOT_START_TLS, "cannot start a TLS LDAP session");
+  REG_ERROR(ERROR_LDAP_FOUND_NO_OBJECTS, "LDAP didn't found any objects");
+  REG_ERROR(ERROR_LDAP_NOT_ONE_USER_FOUND, "LDAP found zero ore more than one user");
+  REG_ERROR(ERROR_LDAP_USER_NOT_IDENTIFIED, "LDAP found a user, but its not the desired one");
+  REG_ERROR(ERROR_LDAP_INVALID_MODE, "invalid ldap mode");
   REG_ERROR(ERROR_TASK_INVALID_ID, "invalid task id");
   REG_ERROR(ERROR_TASK_DUPLICATE_ID, "duplicate task id");
   REG_ERROR(ERROR_TASK_NOT_FOUND, "task not found");
@@ -269,6 +281,7 @@ void TRI_InitializeErrorMessages () {
   REG_ERROR(ERROR_SERVICE_SOURCE_ERROR, "error resolving source");
   REG_ERROR(ERROR_SERVICE_UNKNOWN_SCRIPT, "unknown script");
   REG_ERROR(ERROR_MODULE_NOT_FOUND, "cannot locate module");
+  REG_ERROR(ERROR_MODULE_SYNTAX_ERROR, "syntax error in module");
   REG_ERROR(ERROR_MODULE_FAILURE, "failed to invoke module");
   REG_ERROR(ERROR_NO_SMART_COLLECTION, "collection is not smart");
   REG_ERROR(ERROR_NO_SMART_GRAPH_ATTRIBUTE, "smart graph attribute not given");
@@ -281,6 +294,7 @@ void TRI_InitializeErrorMessages () {
   REG_ERROR(ERROR_AGENCY_INFORM_MUST_CONTAIN_ACTIVE, "Inform message must contain array 'active'");
   REG_ERROR(ERROR_AGENCY_INFORM_MUST_CONTAIN_POOL, "Inform message must contain object 'pool'");
   REG_ERROR(ERROR_AGENCY_INQUIRE_CLIENT_ID_MUST_BE_STRING, "Inquiry failed");
+  REG_ERROR(ERROR_SUPERVISION_GENERAL_FAILURE, "general supervision failure");
   REG_ERROR(ERROR_DISPATCHER_IS_STOPPING, "dispatcher stopped");
   REG_ERROR(ERROR_QUEUE_UNKNOWN, "named queue does not exist");
   REG_ERROR(ERROR_QUEUE_FULL, "named queue is full");

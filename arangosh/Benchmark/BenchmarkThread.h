@@ -90,10 +90,10 @@ class BenchmarkThread : public arangodb::Thread {
       FATAL_ERROR_EXIT();
     }
 
-    _httpClient->setLocationRewriter(this, &rewriteLocation);
+    _httpClient->params().setLocationRewriter(this, &rewriteLocation);
 
-    _httpClient->setUserNamePassword("/", _username, _password);
-    _httpClient->setKeepAlive(_keepAlive);
+    _httpClient->params().setUserNamePassword("/", _username, _password);
+    _httpClient->params().setKeepAlive(_keepAlive);
 
     // test the connection
     httpclient::SimpleHttpResult* result =
@@ -350,7 +350,7 @@ class BenchmarkThread : public arangodb::Thread {
       }
       _warningCount++;
       if (_warningCount < MaxWarnings) {
-        LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "batch operation failed because server did not reply";
+        LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "single operation failed because server did not reply";
       }
       return;
     }
@@ -361,7 +361,7 @@ class BenchmarkThread : public arangodb::Thread {
       _warningCount++;
       if (_warningCount < MaxWarnings) {
         LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "request for URL '" << url << "' failed with HTTP code "
-                  << result->getHttpReturnCode();
+                  << result->getHttpReturnCode() << ": " << std::string(result->getBody().c_str(), result->getBody().length());
       } else if (_warningCount == MaxWarnings) {
         LOG_TOPIC(WARN, arangodb::Logger::FIXME) << "...more warnings...";
       }

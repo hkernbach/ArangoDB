@@ -34,7 +34,7 @@ using namespace arangodb;
 
 /// @brief create the transaction, using a collection id
 SingleCollectionTransaction::SingleCollectionTransaction(
-  std::shared_ptr<transaction::Context> transactionContext, TRI_voc_cid_t cid, 
+  std::shared_ptr<transaction::Context> const& transactionContext, TRI_voc_cid_t cid, 
   AccessMode::Type accessType)
       : transaction::Methods(transactionContext),
         _cid(cid),
@@ -44,11 +44,12 @@ SingleCollectionTransaction::SingleCollectionTransaction(
 
   // add the (sole) collection
   addCollection(cid, _accessType);
+  addHint(transaction::Hints::Hint::NO_DLD);
 }
 
 /// @brief create the transaction, using a collection name
 SingleCollectionTransaction::SingleCollectionTransaction(
-  std::shared_ptr<transaction::Context> transactionContext,
+  std::shared_ptr<transaction::Context> const& transactionContext,
   std::string const& name, AccessMode::Type accessType)
       : transaction::Methods(transactionContext),
         _cid(0),
@@ -58,6 +59,7 @@ SingleCollectionTransaction::SingleCollectionTransaction(
   // add the (sole) collection
   _cid = resolver()->getCollectionId(name);
   addCollection(_cid, name.c_str(), _accessType);
+  addHint(transaction::Hints::Hint::NO_DLD);
 }
 
 /// @brief get the underlying transaction collection

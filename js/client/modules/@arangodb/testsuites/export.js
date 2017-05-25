@@ -51,7 +51,7 @@ const toArgv = require('internal').toArgv;
 
 function exportTest (options) {
   const cluster = options.cluster ? '-cluster' : '';
-  const tmpPath = fs.getTempPath();
+  const tmpPath = fs.join(options.testOutputDirectory, 'export');
   const DOMParser = new xmldom.DOMParser({
     locator: {},
     errorHandler: {
@@ -95,7 +95,7 @@ function exportTest (options) {
     'overwrite': true,
     'output-directory': tmpPath
   };
-  const results = {};
+  const results = {failed: 0};
 
   function shutdown () {
     print(CYAN + 'Shutting down...' + RESET);
@@ -106,17 +106,26 @@ function exportTest (options) {
   }
 
   results.setup = tu.runInArangosh(options, instanceInfo, tu.makePathUnix('js/server/tests/export/export-setup' + cluster + '.js'));
+  results.setup.failed = 0;
   if (!pu.arangod.check.instanceAlive(instanceInfo, options) || results.setup.status !== true) {
+    results.setup.failed = 1;
+    results.failed += 1;
     return shutdown();
   }
 
   print(CYAN + Date() + ': Export data (json)' + RESET);
   results.exportJson = pu.executeAndWait(pu.ARANGOEXPORT_BIN, toArgv(args), options, 'arangosh', tmpPath);
+  results.exportJson.failed = results.exportJson.status ? 0 : 1;
+
   try {
-    // const filesContent = JSON.parse(fs.read(fs.join(tmpPath, 'UnitTestsExport.json')));
-    results.parseJson = { status: true };
-  } catch (e) {
     results.parseJson = {
+      failed: 0,
+      status: true
+    };
+  } catch (e) {
+    results.failed += 1;
+    results.parseJson = {
+      failed: 1,
       status: false,
       message: e
     };
@@ -125,6 +134,7 @@ function exportTest (options) {
   print(CYAN + Date() + ': Export data (jsonl)' + RESET);
   args['type'] = 'jsonl';
   results.exportJsonl = pu.executeAndWait(pu.ARANGOEXPORT_BIN, toArgv(args), options, 'arangosh', tmpPath);
+  results.exportJsonl.failed = results.exportJsonl.status ? 0 : 1;
   try {
     const filesContent = fs.read(fs.join(tmpPath, 'UnitTestsExport.jsonl')).split('\n');
     for (const line of filesContent) {
@@ -132,10 +142,13 @@ function exportTest (options) {
       JSON.parse(line);
     }
     results.parseJsonl = {
+      failed: 0,
       status: true
     };
   } catch (e) {
+    results.failed += 1;
     results.parseJsonl = {
+      failed: 1,
       status: false,
       message: e
     };
@@ -145,19 +158,26 @@ function exportTest (options) {
   args['type'] = 'xgmml';
   args['graph-name'] = 'UnitTestsExport';
   results.exportXgmml = pu.executeAndWait(pu.ARANGOEXPORT_BIN, toArgv(args), options, 'arangosh', tmpPath);
+  results.exportXgmml.failed = results.exportXgmml.status ? 0 : 1;
   try {
     const filesContent = fs.read(fs.join(tmpPath, 'UnitTestsExport.xgmml'));
     DOMParser.parseFromString(filesContent);
-    results.parseXgmml = { status: true };
+    results.parseXgmml = {
+      failed: 0,
+      status: true
+    };
 
     if (xmlErrors !== null) {
       results.parseXgmml = {
+        failed: 1,
         status: false,
         message: xmlErrors
       };
     }
   } catch (e) {
+    results.failed += 1;
     results.parseXgmml = {
+      failed: 1,
       status: false,
       message: e
     };

@@ -25,7 +25,6 @@
 #include "Logger/Logger.h"
 #include "ProgramOptions/ProgramOptions.h"
 #include "ProgramOptions/Section.h"
-#include "RestServer/ConsoleThread.h"
 #include "RestServer/DatabaseFeature.h"
 #include "RestServer/ServerFeature.h"
 #include "V8/v8-conv.h"
@@ -33,6 +32,8 @@
 #include "V8/v8-utils.h"
 #include "V8Server/V8Context.h"
 #include "V8Server/V8DealerFeature.h"
+
+#include <iostream>
 
 using namespace arangodb;
 using namespace arangodb::application_features;

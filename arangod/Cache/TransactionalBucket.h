@@ -29,6 +29,8 @@
 #include "Cache/Common.h"
 #include "Cache/State.h"
 
+#include <stddef.h>
+
 #include <stdint.h>
 #include <atomic>
 
@@ -48,19 +50,19 @@ namespace cache {
 struct TransactionalBucket {
   State _state;
 
-  // actual cached entries
-  static constexpr size_t slotsData = 3;
-  uint32_t _cachedHashes[slotsData];
-  CachedValue* _cachedData[slotsData];
-
   // blacklist entries for transactional semantics
-  static constexpr size_t slotsBlacklist = 4;
+  static constexpr size_t slotsBlacklist = 5;
   uint32_t _blacklistHashes[slotsBlacklist];
   uint64_t _blacklistTerm;
 
+  // actual cached entries
+  static constexpr size_t slotsData = 8;
+  uint32_t _cachedHashes[slotsData];
+  CachedValue* _cachedData[slotsData];
+
 // padding, if necessary?
 #ifdef TRI_PADDING_32
-  uint32_t _padding[3];
+  uint32_t _padding[slotsData];
 #endif
 
   //////////////////////////////////////////////////////////////////////////////

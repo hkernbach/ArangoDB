@@ -28,6 +28,7 @@
 #include "Agency/AgentActivator.h"
 #include "Agency/AgentCallback.h"
 #include "Agency/AgentConfiguration.h"
+#include "Agency/AgentInterface.h"
 #include "Agency/Compactor.h"
 #include "Agency/Constituent.h"
 #include "Agency/Inception.h"
@@ -39,12 +40,10 @@ struct TRI_vocbase_t;
 
 namespace arangodb {
 namespace consensus {
-class Agent : public arangodb::Thread {
+class Agent : public arangodb::Thread,
+              public AgentInterface {
 
  public:
-  /// @brief Possible outcome of write process
-  enum raft_commit_t {OK, UNKNOWN, TIMEOUT};
-  
   /// @brief Construct with program options
   explicit Agent(config_t const&);
 
@@ -95,10 +94,10 @@ class Agent : public arangodb::Thread {
   bool load();
 
   /// @brief Unpersisted key-value-store
-  trans_ret_t transient(query_t const&);
+  trans_ret_t transient(query_t const&) override;
 
   /// @brief Attempt write
-  write_ret_t write(query_t const&);
+  write_ret_t write(query_t const&) override;
 
   /// @brief Read from agency
   read_ret_t read(query_t const&);
@@ -107,7 +106,16 @@ class Agent : public arangodb::Thread {
   inquire_ret_t inquire(query_t const&);
 
   /// @brief Attempt read/write transaction
-  trans_ret_t transact(query_t const&);
+  trans_ret_t transact(query_t const&) override;
+
+  /// @brief Put trxs into list of ongoing ones.
+  void addTrxsOngoing(Slice trxs);
+
+  /// @brief Remove trxs from list of ongoing ones.
+  void removeTrxsOngoing(Slice trxs);
+
+  /// @brief Check whether a trx is ongoing.
+  bool isTrxOngoing(std::string& id);
 
   /// @brief Received by followers to replicate log entries ($5.3);
   ///        also used as heartbeat ($5.2).
@@ -148,7 +156,7 @@ class Agent : public arangodb::Thread {
   void reportIn(std::string const&, index_t, size_t = 0);
 
   /// @brief Wait for slaves to confirm appended entries
-  raft_commit_t waitFor(index_t last_entry, double timeout = 2.0);
+  AgentInterface::raft_commit_t waitFor(index_t last_entry, double timeout = 2.0) override;
 
   /// @brief Convencience size of agency
   size_t size() const;
@@ -229,6 +237,9 @@ class Agent : public arangodb::Thread {
   void beginPrepareLeadership() { _preparing = true; }
   void endPrepareLeadership()  { _preparing = false; }
 
+  // #brief access Inception thread
+  Inception const* inception() const;
+
   /// @brief State reads persisted state and prepares the agent
   friend class State;
   friend class Compactor;
@@ -274,13 +285,15 @@ class Agent : public arangodb::Thread {
   /// @brief Last commit index (raft)
   index_t _lastCommitIndex;
 
-  /// @brief Last compaction index
+  /// @brief Last index of the log that has been applied to the readDB
   index_t _lastAppliedIndex;
 
-  /// @brief Last compaction index
+  /// @brief Last index up to which we have performed log compaction
   index_t _lastCompactionIndex;
 
-  /// @brief Last compaction index
+  /// @brief Last index that is "committed" in the sense that the leader
+  /// has convinced itself that an absolute majority (including the leader)
+  /// have written the entry into their log
   index_t _leaderCommitIndex;
 
   /// @brief Spearhead (write) kv-store
@@ -289,7 +302,7 @@ class Agent : public arangodb::Thread {
   /// @brief Committed (read) kv-store
   Store _readDB;
 
-  /// @brief Committed (read) kv-store
+  /// @brief Committed (read) kv-store for transient data
   Store _transient;
 
   /// @brief Last compacted store
@@ -326,7 +339,7 @@ class Agent : public arangodb::Thread {
   mutable arangodb::Mutex _activatorLock;
 
   /// @brief Next compaction after
-  index_t _nextCompationAfter;
+  index_t _nextCompactionAfter;
 
   /// @brief Inception thread getting an agent up to join RAFT from cmd or persistence
   std::unique_ptr<Inception> _inception;
@@ -344,6 +357,12 @@ class Agent : public arangodb::Thread {
   /// @brief Keep track of when I last took on leadership
   TimePoint _leaderSince;
   
+  /// @brief Ids of ongoing transactions, used for inquire:
+  std::set<std::string> _ongoingTrxs;
+
+  // lock for _ongoingTrxs
+  arangodb::Mutex _trxsLock;
+
 };
 }
 }

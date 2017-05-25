@@ -130,7 +130,7 @@ function request (req) {
 
   const headers = {};
 
-  if (contentType) {
+  if (contentType && !headers['content-type']) {
     headers['content-type'] = contentType;
   }
 
@@ -167,6 +167,9 @@ function request (req) {
     options.maxRedirects = req.maxRedirects;
   } else {
     options.maxRedirects = 10;
+  }
+  if (req.sslProtocol) {
+    options.sslProtocol = req.sslProtocol;
   }
   let result = internal.download(path, body, options);
 

@@ -8,7 +8,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin/")
 ## arangobench
 ################################################################################
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   generate_product_version(ProductVersionFiles_arangobench
     NAME arangobench
     FILE_DESCRIPTION ${ARANGOBENCH_FRIENDLY_STRING}
@@ -53,7 +53,7 @@ endif ()
 ## arangodump
 ################################################################################
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   generate_product_version(ProductVersionFiles_arangodump
     NAME arangodump
     FILE_DESCRIPTION ${ARANGO_DUMP_FRIENDLY_STRING}
@@ -99,7 +99,7 @@ endif ()
 ## arangoexport
 ################################################################################
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   generate_product_version(ProductVersionFiles_arangoexport
     NAME arangoexport
     FILE_DESCRIPTION ${ARANGO_EXPORT_FRIENDLY_STRING}
@@ -145,7 +145,7 @@ endif ()
 ## arangoimp
 ################################################################################
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   generate_product_version(ProductVersionFiles_arangoimp
     NAME arangoimp
     FILE_DESCRIPTION ${ARANGO_IMP_FRIENDLY_STRING}
@@ -162,6 +162,7 @@ add_executable(${BIN_ARANGOIMP}
   ${PROJECT_SOURCE_DIR}/lib/Basics/WorkMonitorDummy.cpp
   Import/ImportFeature.cpp
   Import/ImportHelper.cpp
+  Import/SenderThread.cpp
   Import/arangoimp.cpp
   Shell/ClientFeature.cpp
   Shell/ConsoleFeature.cpp
@@ -192,7 +193,7 @@ endif ()
 ## arangorestore
 ################################################################################
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   generate_product_version(ProductVersionFiles_arangorestore
     NAME arangorestore
     FILE_DESCRIPTION ${ARANGO_RESTORE_FRIENDLY_STRING}
@@ -238,7 +239,7 @@ endif ()
 ## arangosh
 ################################################################################
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   generate_product_version(ProductVersionFiles_arangosh
     NAME arangosh
     FILE_DESCRIPTION ${ARANGOSH_FRIENDLY_STRING}
@@ -254,6 +255,7 @@ add_executable(${BIN_ARANGOSH}
   ${ProductVersionFiles_arangosh}
   ${PROJECT_SOURCE_DIR}/lib/Basics/WorkMonitorDummy.cpp
   Import/ImportHelper.cpp
+  Import/SenderThread.cpp
   Shell/ClientFeature.cpp
   Shell/ConsoleFeature.cpp
   Shell/ShellFeature.cpp
@@ -290,7 +292,7 @@ endif ()
 ## arangovpack
 ################################################################################
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   generate_product_version(ProductVersionFiles_arangovpack
     NAME arangovpack
     FILE_DESCRIPTION ${ARANGO_VPACK_FRIENDLY_STRING}

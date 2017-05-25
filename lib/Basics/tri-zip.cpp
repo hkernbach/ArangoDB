@@ -371,6 +371,56 @@ int TRI_ZipFile(char const* filename, char const* dir,
   return res;
 }
 
+int TRI_Adler32(char const* filename, uint32_t& checksum) {
+  checksum = 0;
+
+  if (!TRI_IsRegularFile(filename) && !TRI_IsSymbolicLink(filename)) {
+    return TRI_ERROR_FILE_NOT_FOUND;
+  }
+
+  int fd = TRI_OPEN(filename, O_RDONLY);
+  if (fd < 0) {
+    return TRI_ERROR_FILE_NOT_FOUND;
+  }
+  TRI_DEFER(TRI_CLOSE(fd));
+
+  struct TRI_STAT statbuf;
+  TRI_FSTAT(fd, &statbuf);
+
+  ssize_t chunkRemain = static_cast<TRI_read_t>(statbuf.st_size);
+  char* buf =
+      static_cast<char*>(TRI_Allocate(TRI_UNKNOWN_MEM_ZONE, 131072, false));
+
+  if (buf == nullptr) {
+    return TRI_ERROR_OUT_OF_MEMORY;
+  }
+
+  uLong adler = adler32(0L, Z_NULL, 0);
+  while (chunkRemain > 0) {
+    TRI_read_t readChunk;
+    if (chunkRemain > 131072) {
+      readChunk = 131072;
+    } else {
+      readChunk = chunkRemain;
+    }
+
+    ssize_t nRead = TRI_READ(fd, buf, readChunk);
+
+    if (nRead < 0) {
+      TRI_Free(TRI_UNKNOWN_MEM_ZONE, buf);
+      return TRI_ERROR_INTERNAL;
+    }
+    
+    adler = adler32(adler, reinterpret_cast<const unsigned char *>(buf), static_cast<uInt>(nRead));
+    chunkRemain -= nRead;
+  }
+
+  TRI_Free(TRI_UNKNOWN_MEM_ZONE, buf);
+
+  checksum = static_cast<uint32_t>(adler);
+  return TRI_ERROR_NO_ERROR;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief unzips a file
 ////////////////////////////////////////////////////////////////////////////////

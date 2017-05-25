@@ -30,6 +30,7 @@
 #include "Pregel/IncomingCache.h"
 #include "Pregel/MasterContext.h"
 #include "Pregel/VertexComputation.h"
+#include "Random/RandomGenerator.h"
 
 using namespace arangodb;
 using namespace arangodb::pregel;
@@ -40,43 +41,49 @@ static const uint64_t STABILISATION_ROUNDS = 20;
 struct LPComputation : public VertexComputation<LPValue, int8_t, uint64_t> {
   LPComputation() {}
 
+  uint64_t mostFrequent(MessageIterator<uint64_t> const& messages) {
+    TRI_ASSERT(messages.size() > 0);
+
+    // most frequent value
+    size_t i = 0;
+    std::vector<uint64_t> all(messages.size());
+    for (uint64_t const* msg : messages) {
+      all[i++] = *msg;
+    }
+    std::sort(all.begin(), all.end());
+    uint64_t maxValue = all[0];
+    uint64_t currentValue = all[0];
+    int currentCounter = 1;
+    int maxCounter = 1;
+    for (i = 1; i < all.size(); i++) {
+      if (currentValue == all[i]) {
+        currentCounter++;
+        if (maxCounter < currentCounter) {
+          maxCounter = currentCounter;
+          maxValue = currentValue;
+        }
+      } else {
+        currentCounter = 1;
+        currentValue = all[i];
+      }
+    }
+    if (maxCounter == 1) {
+      return std::min(all[0], mutableVertexData()->currentCommunity);
+    }
+    return maxValue;
+  }
+
   void compute(MessageIterator<uint64_t> const& messages) override {
     LPValue* value = mutableVertexData();
     if (globalSuperstep() == 0) {
-      sendMessageToAllEdges(value->currentCommunity);
+      sendMessageToAllNeighbours(value->currentCommunity);
     } else {
-      uint64_t newCommunity = value->currentCommunity;
+      uint64_t newCommunity = mutableVertexData()->currentCommunity;
       if (messages.size() == 1) {
         newCommunity = std::min(**messages, newCommunity);
-      } else if (messages.size() > 1) {
-        // most frequent value
-        size_t i = 0;
-        std::vector<uint64_t> all(messages.size());
-        for (uint64_t const* msg : messages) {
-          all[i++] = *msg;
-        }
-        std::sort(all.begin(), all.end());
-        uint64_t maxValue = all[0];
-        uint64_t currentValue = all[0];
-        int currentCounter = 1;
-        int maxCounter = 1;
-        for (i = 1; i < all.size(); i++) {
-          if (currentValue == all[i]) {
-            currentCounter++;
-            if (maxCounter < currentCounter) {
-              maxCounter = currentCounter;
-              maxValue = currentValue;
-            }
-          } else {
-            currentCounter = 1;
-            currentValue = all[i];
-          }
-        }
-        if (maxCounter == 1) {
-          newCommunity = std::min(all[0], value->currentCommunity);
-        } else {
-          newCommunity = maxValue;
-        }
+      }
+      if (messages.size() > 1) {
+        newCommunity = mostFrequent(messages);
       }
 
       // increment the stabilization count if vertex wants to stay in the
@@ -91,7 +98,7 @@ struct LPComputation : public VertexComputation<LPValue, int8_t, uint64_t> {
         value->lastCommunity = value->currentCommunity;
         value->currentCommunity = newCommunity;
         value->stabilizationRounds = 0;  // reset stabilization counter
-        sendMessageToAllEdges(value->currentCommunity);
+        sendMessageToAllNeighbours(value->currentCommunity);
       }
     }
     voteHalt();
@@ -105,9 +112,10 @@ LabelPropagation::createComputation(WorkerConfig const* config) const {
 
 struct LPGraphFormat : public GraphFormat<LPValue, int8_t> {
   std::string _resultField;
-  uint64_t vertexIdRange = 0;
+  std::atomic<uint64_t> vertexIdRange;
 
-  explicit LPGraphFormat(std::string const& result) : _resultField(result) {}
+  explicit LPGraphFormat(std::string const& result)
+      : _resultField(result), vertexIdRange(0) {}
 
   size_t estimatedVertexSize() const override { return sizeof(LPValue); };
   size_t estimatedEdgeSize() const override { return 0; };
@@ -137,6 +145,7 @@ struct LPGraphFormat : public GraphFormat<LPValue, int8_t> {
   bool buildVertexDocument(arangodb::velocypack::Builder& b, const LPValue* ptr,
                            size_t size) const override {
     b.add(_resultField, VPackValue(ptr->currentCommunity));
+    b.add("stabilizationRounds", VPackValue(ptr->stabilizationRounds));
     return true;
   }
 

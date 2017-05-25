@@ -21,8 +21,10 @@
 /// @author Jan Steemann
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "MMFilesTransactionState.h"
 #include "Aql/QueryCache.h"
 #include "Basics/Exceptions.h"
+#include "Basics/RocksDBUtils.h"
 #include "Logger/Logger.h"
 #include "MMFiles/MMFilesCollection.h"
 #include "MMFiles/MMFilesDatafileHelper.h"
@@ -30,8 +32,6 @@
 #include "MMFiles/MMFilesLogfileManager.h"
 #include "MMFiles/MMFilesPersistentIndexFeature.h"
 #include "MMFiles/MMFilesTransactionCollection.h"
-#include "MMFilesTransactionState.h"
-#include "RocksDBEngine/RocksDBCommon.h"
 #include "StorageEngine/TransactionCollection.h"
 #include "Transaction/Methods.h"
 #include "VocBase/LogicalCollection.h"
@@ -172,6 +172,7 @@ Result MMFilesTransactionState::commitTransaction(transaction::Methods* activeTr
     // if a write query, clear the query cache for the participating collections
     if (AccessMode::isWriteOrExclusive(_type) &&
         !_collections.empty() &&
+        !isSingleOperation() && 
         arangodb::aql::QueryCache::instance()->mayBeActive()) {
       clearQueryCache();
     }

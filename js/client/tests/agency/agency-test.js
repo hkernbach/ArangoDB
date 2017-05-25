@@ -425,7 +425,7 @@ function agencyTestSuite () {
       assertEqual(res.bodyParsed.length, 4);
       assertEqual(res.bodyParsed[0] > 0, true);
       assertEqual(res.bodyParsed[1] > 0, true);
-      assertEqual(res.bodyParsed[2], 0);
+      assertEqual(res.bodyParsed[2], {a : 13});
       assertEqual(res.bodyParsed[3], query[1]);
 
       res = accessAgency("inquire",[id[13]]).bodyParsed;
@@ -495,23 +495,23 @@ function agencyTestSuite () {
 
     testOpSetNew : function () {
       writeAndCheck([[{"a/z":{"op":"set","new":12}}]]);
-      assertEqual(readAndCheck([["a/z"]]), [{"a":{"z":12}}]);
+      assertEqual(readAndCheck([["/a/z"]]), [{"a":{"z":12}}]);
       writeAndCheck([[{"a/y":{"op":"set","new":12, "ttl": 1}}]]);
+      assertEqual(readAndCheck([["/a/y"]]), [{"a":{"y":12}}]);
+      wait(1.1);
+      assertEqual(readAndCheck([["/a/y"]]), [{a:{}}]);
+      writeAndCheck([[{"/a/y":{"op":"set","new":12, "ttl": 1}}]]);
+      writeAndCheck([[{"/a/y":{"op":"set","new":12}}]]);
       assertEqual(readAndCheck([["a/y"]]), [{"a":{"y":12}}]);
-      wait(3.0);
-      assertEqual(readAndCheck([["a/y"]]), [{a:{}}]);
-      writeAndCheck([[{"a/y":{"op":"set","new":12, "ttl": 1}}]]);
-      writeAndCheck([[{"a/y":{"op":"set","new":12}}]]);
-      assertEqual(readAndCheck([["a/y"]]), [{"a":{"y":12}}]);
-      wait(3.0);
-      assertEqual(readAndCheck([["a/y"]]), [{"a":{"y":12}}]);
+      wait(1.1);
+      assertEqual(readAndCheck([["/a/y"]]), [{"a":{"y":12}}]);
       writeAndCheck([[{"foo/bar":{"op":"set","new":{"baz":12}}}]]);
       assertEqual(readAndCheck([["/foo/bar/baz"]]),
                   [{"foo":{"bar":{"baz":12}}}]);
       assertEqual(readAndCheck([["/foo/bar"]]), [{"foo":{"bar":{"baz":12}}}]);
       assertEqual(readAndCheck([["/foo"]]), [{"foo":{"bar":{"baz":12}}}]);
       writeAndCheck([[{"foo/bar":{"op":"set","new":{"baz":12},"ttl":1}}]]);
-      wait(3.0);
+      wait(1.1);
       assertEqual(readAndCheck([["/foo"]]), [{"foo":{}}]);
       assertEqual(readAndCheck([["/foo/bar"]]), [{"foo":{}}]);
       assertEqual(readAndCheck([["/foo/bar/baz"]]), [{"foo":{}}]);
@@ -605,7 +605,9 @@ function agencyTestSuite () {
 ////////////////////////////////////////////////////////////////////////////////
 
     testOpErase : function () {
+      
       writeAndCheck([[{"/version":{"op":"delete"}}]]);
+      
       writeAndCheck([[{"/a":[0,1,2,3,4,5,6,7,8,9]}]]); // none before
       assertEqual(readAndCheck([["/a"]]), [{a:[0,1,2,3,4,5,6,7,8,9]}]);
       writeAndCheck([[{"a":{"op":"erase","val":3}}]]);
@@ -629,6 +631,28 @@ function agencyTestSuite () {
       writeAndCheck([[{"a":{"op":"erase","val":6}}],
                      [{"a":{"op":"erase","val":8}}]]);
       assertEqual(readAndCheck([["/a"]]), [{a:[]}]);
+      
+      writeAndCheck([[{"/a":[0,1,2,3,4,5,6,7,8,9]}]]); // none before
+      assertEqual(readAndCheck([["/a"]]), [{a:[0,1,2,3,4,5,6,7,8,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":3}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[0,1,2,4,5,6,7,8,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":0}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[1,2,4,5,6,7,8,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":0}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[2,4,5,6,7,8,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":2}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[2,4,6,7,8,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":4}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[2,4,6,7,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":2}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[2,4,7,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":2}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[2,4,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":0}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[4,9]}]);
+      writeAndCheck([[{"a":{"op":"erase","pos":1}}],
+                     [{"a":{"op":"erase","pos":0}}]]);
+      assertEqual(readAndCheck([["/a"]]), [{a:[]}]);      
     },
 
 ////////////////////////////////////////////////////////////////////////////////

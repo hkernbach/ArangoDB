@@ -105,9 +105,11 @@ function rubyTests (options, ssl) {
                     'end\n';
 
   fs.write(tmpname, rspecConfig);
-  if (options.extremeVerbosity === true){
-      print("rspecConfig: \n" + rspecConfig);
+
+  if (options.extremeVerbosity === true) {
+    print('rspecConfig: \n' + rspecConfig);
   }
+
   try {
     fs.makeDirectory(pu.LOGS_DIR);
   } catch (err) {}
@@ -146,11 +148,13 @@ function rubyTests (options, ssl) {
       const msg = yaml.safeDump(testCase)
             .replace(/.*rspec\/core.*\n/gm, '')
             .replace(/.*rspec\\core.*\n/gm, '')
+            .replace(/.*lib\/ruby.*\n/, '')
             .replace(/.*- >-.*\n/gm, '')
             .replace(/\n *`/gm, ' `');
       print('RSpec test case falied: \n' + msg);
       res[tName].message += '\n' + msg;
     }
+    return status ? 0 : 1;
   };
 
   let count = 0;
@@ -174,12 +178,14 @@ function rubyTests (options, ssl) {
           instanceInfo.exitStatus = 'server is gone.';
           break;
         }
+        const subFolder = ssl ? 'ssl_server' : 'http_server';
+        const resultfn = fs.join(options.testOutputDirectory, subFolder, te + '.json');
 
         args = ['--color',
                 '-I', fs.join('UnitTests', 'HttpInterface'),
                 '--format', 'd',
                 '--format', 'j',
-                '--out', fs.join('out', 'UnitTests', te + '.json'),
+                '--out', resultfn,
                 '--require', tmpname,
                 tfn
                ];
@@ -193,10 +199,10 @@ function rubyTests (options, ssl) {
 
         result[te] = {
           total: 0,
+          failed: 0,
           status: res.status
         };
 
-        const resultfn = fs.join('out', 'UnitTests', te + '.json');
 
         try {
           const jsonResult = JSON.parse(fs.read(resultfn));
@@ -206,8 +212,9 @@ function rubyTests (options, ssl) {
           }
 
           for (let j = 0; j < jsonResult.examples.length; ++j) {
-            parseRspecJson(jsonResult.examples[j], result[te],
-                           jsonResult.summary.duration);
+            result[te].failed += parseRspecJson(
+              jsonResult.examples[j], result[te],
+              jsonResult.summary.duration);
           }
 
           result[te].duration = jsonResult.summary.duration;

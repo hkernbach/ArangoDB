@@ -29,7 +29,7 @@
 #include "GeneralServer/GeneralServerFeature.h"
 #include "GeneralServer/RestHandler.h"
 #include "GeneralServer/RestHandlerFactory.h"
-#include "GeneralServer/VppCommTask.h"
+#include "GeneralServer/VstCommTask.h"
 #include "Meta/conversion.h"
 #include "Rest/HttpRequest.h"
 #include "Statistics/ConnectionStatistics.h"
@@ -129,6 +129,10 @@ void HttpCommTask::addResponse(HttpResponse* response,
                                   StaticStrings::ExposedCorsHeaders);
   }
 
+  // use "IfNotSet"
+  response->setHeaderNCIfNotSet(StaticStrings::XContentTypeOptions,
+                                StaticStrings::NoSniff);
+
   // set "connection" header, keep-alive is the default
   response->setConnectionType(_closeRequested
                                   ? rest::ConnectionType::C_CLOSE
@@ -160,13 +164,27 @@ void HttpCommTask::addResponse(HttpResponse* response,
   if (!buffer._buffer->empty()) {
     LOG_TOPIC(TRACE, Logger::REQUESTS)
         << "\"http-request-response\",\"" << (void*)this << "\",\"" << _fullUrl
-        << "\",\"" << StringUtils::escapeUnicode(std::string(
-                          buffer._buffer->c_str(), buffer._buffer->length()))
+        << "\",\""
+        << StringUtils::escapeUnicode(
+               std::string(buffer._buffer->c_str(), buffer._buffer->length()))
         << "\"";
   }
 
   // append write buffer and statistics
   double const totalTime = RequestStatistics::ELAPSED_SINCE_READ_START(stat);
+
+  if (stat != nullptr && arangodb::Logger::isEnabled(arangodb::LogLevel::TRACE,
+                                                     Logger::REQUESTS)) {
+    LOG_TOPIC(TRACE, Logger::REQUESTS)
+        << "\"http-request-statistics\",\"" << (void*)this << "\",\""
+        << _connectionInfo.clientAddress << "\",\""
+        << HttpRequest::translateMethod(_requestType) << "\",\""
+        << HttpRequest::translateVersion(_protocolVersion) << "\","
+        << static_cast<int>(response->responseCode()) << ","
+        << _originalBodyLength << "," << responseBodyLength << ",\"" << _fullUrl
+        << "\"," << stat->timingsCsv();
+  }
+
   addWriteBuffer(buffer);
 
   // and give some request information
@@ -252,14 +270,18 @@ bool HttpCommTask::processRead(double startTime) {
     }
 
     if (_readBuffer.length() >= 11 &&
-        std::memcmp(_readBuffer.c_str(), "VST/1.0\r\n\r\n", 11) == 0) {
+        (std::memcmp(_readBuffer.c_str(), "VST/1.0\r\n\r\n", 11) == 0 ||
+         std::memcmp(_readBuffer.c_str(), "VST/1.1\r\n\r\n", 11) == 0)) {
       LOG_TOPIC(TRACE, Logger::COMMUNICATION) << "switching from HTTP to VST";
+      ProtocolVersion protocolVersion = _readBuffer.c_str()[6] == '0' 
+          ? ProtocolVersion::VST_1_0 : ProtocolVersion::VST_1_1;
       _abandoned = true;
       cancelKeepAlive();
       std::shared_ptr<GeneralCommTask> commTask;
-      commTask = std::make_shared<VppCommTask>(
+      commTask = std::make_shared<VstCommTask>(
           _loop, _server, std::move(_peer), std::move(_connectionInfo),
-          GeneralServerFeature::keepAliveTimeout(), /*skipSocketInit*/ true);
+          GeneralServerFeature::keepAliveTimeout(), 
+          protocolVersion, /*skipSocketInit*/ true);
       commTask->addToReadBuffer(_readBuffer.c_str() + 11,
                                 _readBuffer.length() - 11);
       commTask->processRead(startTime);
@@ -700,7 +722,7 @@ std::unique_ptr<GeneralResponse> HttpCommTask::createResponse(
 }
 
 void HttpCommTask::compactify() {
-  if (! _newRequest) {
+  if (!_newRequest) {
     return;
   }
 
@@ -731,7 +753,7 @@ void HttpCommTask::compactify() {
       TRI_ASSERT(_bodyPosition >= _readPosition);
       _bodyPosition -= _readPosition;
     }
-    
+
     _readPosition = 0;
   }
 }

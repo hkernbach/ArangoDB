@@ -60,10 +60,11 @@ enum class ResponseCode;
 }
 
 namespace traverser {
-class BaseTraverserEngine;
+class BaseEngine;
 }
 
 namespace transaction {
+class CallbackInvoker;
 class Context;
 }
 
@@ -80,7 +81,8 @@ class TransactionCollection;
 namespace transaction {
 
 class Methods {
-  friend class traverser::BaseTraverserEngine;
+  friend class traverser::BaseEngine;
+  friend class CallbackInvoker;
 
  public:
 
@@ -101,8 +103,7 @@ class Methods {
     bool operator!=(IndexHandle const& other) const {
       return other._index.get() != _index.get();
     }
-    explicit IndexHandle(std::shared_ptr<arangodb::Index> idx) : _index(idx) {
-    }
+    explicit IndexHandle(std::shared_ptr<arangodb::Index> const& idx) : _index(idx) {}
     std::vector<std::vector<std::string>> fieldNames() const;
 
    public:
@@ -123,7 +124,7 @@ class Methods {
  protected:
 
   /// @brief create the transaction
-  explicit Methods(std::shared_ptr<transaction::Context> transactionContext);
+  explicit Methods(std::shared_ptr<transaction::Context> const& transactionContext);
 
  public:
 
@@ -140,6 +141,9 @@ class Methods {
     ALL = 0,
     ANY
   };
+
+  /// @brief register a callback for transaction commit or abort
+  void registerCallback(std::function<void(arangodb::transaction::Methods* trx)> const& onFinish) { _onFinish = onFinish; }
 
   /// @brief return database of transaction
   TRI_vocbase_t* vocbase() const;
@@ -167,6 +171,9 @@ class Methods {
 
   /// @brief get the status of the transaction
   Status status() const;
+  
+  /// @brief get the status of the transaction, as a string
+  char const* statusString() const { return transaction::statusString(status()); }
 
   /// @brief begin the transaction
   Result begin();
@@ -556,11 +563,29 @@ class Methods {
   /// @brief transaction hints
   transaction::Hints _localHints;
 
+  /// @brief name-to-cid lookup cache for last collection seen
   struct {
     TRI_voc_cid_t cid = 0;
     std::string name;
   }
   _collectionCache;
+  
+  /// @brief optional callback function that will be called on transaction
+  /// commit or abort
+  std::function<void(arangodb::transaction::Methods* trx)> _onFinish;
+};
+
+class CallbackInvoker {
+ public:
+  explicit CallbackInvoker(transaction::Methods* trx) : _trx(trx) {}
+  ~CallbackInvoker() {
+    invoke();
+  }
+
+  void invoke() noexcept;
+
+ private:
+  transaction::Methods* _trx;
 };
 
 }

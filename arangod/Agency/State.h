@@ -114,10 +114,16 @@ class State {
 
   /// @brief Pipe to ostream
   friend std::ostream& operator<<(std::ostream& os, State const& s) {
-    for (auto const& i : s._log)
-      LOG_TOPIC(INFO, Logger::AGENCY)
-          << "index(" << i.index << ") term(" << i.term << ") query("
-          << VPackSlice(i.entry->data()).toJson() << ")";
+    VPackBuilder b;
+    { VPackArrayBuilder a(&b);
+      for (auto const& i : s._log) {
+        VPackObjectBuilder bb(&b);
+        b.add("index", VPackValue(i.index));
+        b.add("term", VPackValue(i.term));
+        b.add("item", VPackSlice(i.entry->data()));
+      }
+    }
+    os << b.toJson();
     return os;
   }
 
@@ -128,8 +134,8 @@ class State {
   ///        exists are overwritten
   size_t removeConflicts(query_t const&);
 
-  /// @brief Persist active agency in pool
-  bool persistActiveAgents(query_t const& active, query_t const& pool);
+  /// @brief Persist active agency in pool, throws an exception in case of error
+  void persistActiveAgents(query_t const& active, query_t const& pool);
 
   /// @brief Get everything from the state machine
   query_t allLogs() const;
@@ -199,7 +205,10 @@ class State {
   /// @brief Empty log entry;
   static log_t emptyLog;
   
+  /// @brief Protect writing into configuration collection
+  arangodb::Mutex _configurationWriteLock;
 };
+
 }
 }
 

@@ -32,6 +32,7 @@ var jsunity = require("jsunity");
 var internal = require("internal");
 var helper = require("@arangodb/aql-helper");
 var getQueryResults = helper.getQueryResults;
+var db = internal.db;
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief test suite
@@ -72,6 +73,44 @@ function ahuacatlQueryOptimizerInTestSuite () {
 
     tearDown : function () {
       internal.db._drop(cn);
+    },
+
+    testSortedArrayIn : function () {
+      var values = [
+        "WJItoWBuRBMBMajh", "WJIuWmBuRBMBMbdR",
+        "WJIv_mBuRBMBMdgh", "WJIwOWBuRBMBMdzC",
+        "WJIxaWBuRBMBMfRW", "WJIxyGBuRBMBMfvK",
+        "WK5Mz2BuRBMBQT8y", "WKfgmGBuRBMBPgMR",
+        "WMu6iHNG6AAGJ-gY", "WMu6jXNG6AAGJ-hd",
+        "WMu7kXNG6AAGJ_Zc", "WMyn9nNG6AAGKN4Q",
+        "WMynsHNG6AAGKNqu", "WMyo3HNG6AAGKOk5",
+        "WMyoSXNG6AAGKOIY", "WMyohHNG6AAGKOTx"
+      ];
+
+      values.forEach(function(val) {
+        c.insert({ val });
+      });
+
+      var query = "FOR doc IN " + cn + " FILTER doc.val IN " + JSON.stringify(values) + " RETURN 1";
+      var actual = getQueryResults(query);
+      assertEqual(16, actual.length);
+    },
+    
+    testSortedArrayInStatic : function () {
+      var values = [
+        "WJItoWBuRBMBMajh", "WJIuWmBuRBMBMbdR",
+        "WJIv_mBuRBMBMdgh", "WJIwOWBuRBMBMdzC",
+        "WJIxaWBuRBMBMfRW", "WJIxyGBuRBMBMfvK",
+        "WK5Mz2BuRBMBQT8y", "WKfgmGBuRBMBPgMR",
+        "WMu6iHNG6AAGJ-gY", "WMu6jXNG6AAGJ-hd",
+        "WMu7kXNG6AAGJ_Zc", "WMyn9nNG6AAGKN4Q",
+        "WMynsHNG6AAGKNqu", "WMyo3HNG6AAGKOk5",
+        "WMyoSXNG6AAGKOIY", "WMyohHNG6AAGKOTx"
+      ];
+
+      var query = "RETURN 'WMyohHNG6AAGKOTx' IN " + JSON.stringify(values);
+      var actual = getQueryResults(query);
+      assertEqual([ true ], actual);
     },
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -912,7 +951,11 @@ function ahuacatlQueryOptimizerInTestSuite () {
       }
       c.ensureHashIndex("value");
       var query = "FOR x IN " + cn + " FILTER (x.value > 3 || x.value < 90) RETURN x.value";
-      ruleIsNotUsed(query);
+      if (db._engine().name === "rocksdb") {
+        ruleIsUsed(query);
+      } else {
+        ruleIsNotUsed(query);
+      }
     },
 
     testOverlappingRangesListSkiplist2 : function () { 
@@ -945,7 +988,11 @@ function ahuacatlQueryOptimizerInTestSuite () {
       }
       c.ensureHashIndex("value");
       var query = "FOR i IN " + cn + " FILTER i.value == 8 || i.value <= 7 RETURN i.value";
-      ruleIsNotUsed(query);
+      if (db._engine().name === "rocksdb") {
+        ruleIsUsed(query);
+      } else {
+        ruleIsNotUsed(query);
+      }
     },
 
     testNestedOrHashIndex : function () {

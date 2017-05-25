@@ -36,7 +36,7 @@
 #include "GeneralServer/RestHandlerFactory.h"
 #include "Logger/Logger.h"
 #include "Meta/conversion.h"
-#include "Rest/VppResponse.h"
+#include "Rest/VstResponse.h"
 #include "Scheduler/Job.h"
 #include "Scheduler/JobQueue.h"
 #include "Scheduler/Scheduler.h"
@@ -61,15 +61,13 @@ GeneralCommTask::GeneralCommTask(EventLoop loop, GeneralServer* server,
       _server(server) {}
 
 GeneralCommTask::~GeneralCommTask() {
-  for (auto&& statistics : _statisticsMap) {
+  for (auto& statistics : _statisticsMap) {
     auto stat = statistics.second;
 
     if (stat != nullptr) {
       stat->release();
     }
   }
-
-  _statisticsMap.clear();
 }
 
 // -----------------------------------------------------------------------------
@@ -124,7 +122,7 @@ void GeneralCommTask::executeRequest(
       GeneralServerFeature::HANDLER_FACTORY->createHandler(
           std::move(request), std::move(response)));
 
-  // transfer statistics into handler
+  // give up, if we cannot find a handler
   if (handler == nullptr) {
     LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "no handler is known, giving up";
     handleSimpleError(rest::ResponseCode::NOT_FOUND, messageId);
@@ -276,7 +274,7 @@ bool GeneralCommTask::handleRequest(std::shared_ptr<RestHandler> handler) {
   bool ok = SchedulerFeature::SCHEDULER->queue(std::move(job));
 
   if (!ok) {
-    handleSimpleError(rest::ResponseCode::SERVER_ERROR, TRI_ERROR_QUEUE_FULL,
+    handleSimpleError(rest::ResponseCode::SERVICE_UNAVAILABLE, TRI_ERROR_QUEUE_FULL,
                       TRI_errno_string(TRI_ERROR_QUEUE_FULL), messageId);
   }
 

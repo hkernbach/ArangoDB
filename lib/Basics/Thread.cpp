@@ -73,7 +73,9 @@ void Thread::startThread(void* arg) {
   LOCAL_THREAD_NUMBER = NEXT_THREAD_ID.fetch_add(1, std::memory_order_seq_cst);
 #endif
 
+  TRI_ASSERT(arg != nullptr);
   Thread* ptr = static_cast<Thread*>(arg);
+  TRI_ASSERT(ptr != nullptr);
 
   ptr->_threadNumber = LOCAL_THREAD_NUMBER;
 
@@ -81,6 +83,13 @@ void Thread::startThread(void* arg) {
 
   try {
     ptr->runMe();
+  } catch (std::exception const& ex) {
+    LOG_TOPIC(WARN, Logger::THREADS) << "caught exception in thread '" << ptr->_name
+                                     << "': " << ex.what();
+    if (pushed) {
+      WorkMonitor::popThread(ptr);
+    }
+    throw;
   } catch (...) {
     if (pushed) {
       WorkMonitor::popThread(ptr);
@@ -179,12 +188,13 @@ Thread::~Thread() {
     }
 
     _state.store(ThreadState::DETACHED);
+    return;
   }
 
   state = _state.load();
 
   if (state != ThreadState::DETACHED && state != ThreadState::CREATED) {
-    LOG_TOPIC(FATAL, arangodb::Logger::FIXME) << "thread is not detached but " << stringify(state)
+    LOG_TOPIC(FATAL, arangodb::Logger::FIXME) << "thread '" << _name << "' is not detached but " << stringify(state)
                << ". shutting down hard";
     FATAL_ERROR_ABORT();
   }
@@ -234,7 +244,9 @@ void Thread::shutdown() {
   if (_state.load() == ThreadState::STARTED) {
     beginShutdown();
 
-    if (!isSilent()) {
+    if (!isSilent() && 
+        _state.load() != ThreadState::STOPPING && 
+        _state.load() != ThreadState::STOPPED) {
       LOG_TOPIC(WARN, Logger::THREADS) << "forcefully shutting down thread '"
                                        << _name << "' in state "
                                        << stringify(_state.load());
@@ -307,12 +319,12 @@ bool Thread::start(ConditionVariable* finishedCondition) {
 
   if (ok) {
     if (0 <= _affinity) {
-      TRI_SetProcessorAffinity(&_thread, (size_t)_affinity);
+      TRI_SetProcessorAffinity(&_thread, _affinity);
     }
   } else {
     _state.store(ThreadState::STOPPED);
     LOG_TOPIC(ERR, Logger::THREADS) << "could not start thread '" << _name
-                                    << "': " << strerror(errno);
+                                    << "': " << TRI_last_error();
 
     return false;
   }

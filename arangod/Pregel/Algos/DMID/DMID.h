@@ -31,17 +31,16 @@ namespace pregel {
 namespace algos {
 
 /// https://github.com/Rofti/DMID
-struct DMID
-    : public SimpleAlgorithm<DMIDValue, float, DMIDMessage> {
+struct DMID : public SimpleAlgorithm<DMIDValue, float, DMIDMessage> {
  public:
-  explicit DMID(VPackSlice userParams) : SimpleAlgorithm<DMIDValue, float, DMIDMessage>(
-            "DMID", userParams) {}
+  explicit DMID(VPackSlice userParams)
+      : SimpleAlgorithm<DMIDValue, float, DMIDMessage>("DMID", userParams) {}
 
   GraphFormat<DMIDValue, float>* inputFormat() const override;
-      MessageFormat<DMIDMessage>* messageFormat()  const override;
+  MessageFormat<DMIDMessage>* messageFormat() const override;
 
-  VertexComputation<DMIDValue, float, DMIDMessage>*
-    createComputation(WorkerConfig const*) const override;
+  VertexComputation<DMIDValue, float, DMIDMessage>* createComputation(
+      WorkerConfig const*) const override;
 
   MasterContext* masterContext(VPackSlice userParams) const override;
 

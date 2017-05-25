@@ -132,6 +132,9 @@ class Node {
   /// @brief Get node specified by path string
   Node const& operator()(std::string const& path) const;
 
+  /// @brief Get node specified by path string, always throw if not there
+  Node const& get(std::string const& path) const;
+
   /// @brief Remove child by name
   bool removeChild(std::string const& key);
 
@@ -162,6 +165,9 @@ class Node {
 
   /// @brief Create Builder representing this store
   void toBuilder(Builder&, bool showHidden = false) const;
+
+  /// @brief Create Builder representing this store
+  VPackBuilder toBuilder() const;
 
   /// @brief Access children
   Children& children();
@@ -202,23 +208,47 @@ class Node {
   /// @brief Part of relative path which exists
   std::vector<std::string> exists(std::string const&) const;
 
+  /// @brief Part of relative path vector which exists
+  bool has(std::vector<std::string> const&) const;
+
+  /// @brief Part of relative path which exists
+  bool has(std::string const&) const;
+
   /// @brief Get integer value (throws if type NODE or if conversion fails)
   int getInt() const;
+
+  /// @brief Is UInt
+  bool isInt() const noexcept;
 
   /// @brief Get insigned value (throws if type NODE or if conversion fails)
   uint64_t getUInt() const;
 
+  /// @brief Is UInt
+  bool isUInt() const noexcept;
+
   /// @brief Get bool value (throws if type NODE or if conversion fails)
   bool getBool() const;
 
+  /// @brief Is boolean
+  bool isBool() const noexcept;
+
   /// @brief Get double value (throws if type NODE or if conversion fails)
   double getDouble() const;
+
+  /// @brief Is double
+  bool isDouble() const noexcept;
+
+  /// @brief Is double
+  bool isString() const noexcept;
 
   /// @brief Get string value (throws if type NODE or if conversion fails)
   std::string getString() const;
 
   /// @brief Get array value
   Slice getArray() const;
+
+  /// @brief Clear key value store
+  void clear();
 
  protected:
   /// @brief Add time to live entry
@@ -229,7 +259,7 @@ class Node {
 
   void rebuildVecBuf() const;
 
-  std::string _node_name;  ///< @brief my name
+  std::string _nodeName;  ///< @brief my name
   Node* _parent;           ///< @brief parent
   Store* _store;           ///< @brief Store
   Children _children;      ///< @brief child nodes

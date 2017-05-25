@@ -53,6 +53,7 @@
 #include "V8Server/v8-vocbase.h"
 #include "VocBase/AuthInfo.h"
 #include "VocBase/KeyGenerator.h"
+#include "VocBase/LogicalCollection.h"
 #include "VocBase/replication-applier.h"
 #include "VocBase/vocbase.h"
 #include "VocBase/ticks.h"
@@ -140,10 +141,6 @@ void DatabaseManagerThread::run() {
           // ---------------------------
   
           TRI_ASSERT(!database->isSystem());
-
-          LOG_TOPIC(TRACE, arangodb::Logger::FIXME) << "physically removing database directory '"
-                     << engine->databasePath(database) << "' of database '"
-                     << database->name() << "'";
 
           // remove apps directory for database
           auto appPath = dealer->appPath();
@@ -235,6 +232,7 @@ DatabaseFeature::DatabaseFeature(ApplicationServer* server)
   setOptional(false);
   requiresElevatedPrivileges(false);
   startsAfter("Authentication");
+  startsAfter("CacheManager");
   startsAfter("DatabasePath");
   startsAfter("EngineSelector");
   startsAfter("MMFilesLogfileManager");
@@ -242,6 +240,7 @@ DatabaseFeature::DatabaseFeature(ApplicationServer* server)
   startsAfter("MMFilesEngine");
   startsAfter("MMFilesPersistentIndex");
   startsAfter("RocksDBEngine");
+  startsAfter("Scheduler");
 }
 
 DatabaseFeature::~DatabaseFeature() {
@@ -393,8 +392,19 @@ void DatabaseFeature::beginShutdown() {
 }
 
 void DatabaseFeature::stop() {
-  //StorageEngine* engine = EngineSelectorFeature::ENGINE;
-  //engine->stop();
+  auto unuser(_databasesProtector.use());
+  auto theLists = _databasesLists.load();
+  
+  for (auto& p : theLists->_databases) {
+    TRI_vocbase_t* vocbase = p.second;
+    // iterate over all databases
+    TRI_ASSERT(vocbase != nullptr);
+    TRI_ASSERT(vocbase->type() == TRI_VOCBASE_TYPE_NORMAL);
+
+    vocbase->processCollections([](LogicalCollection* collection) { 
+      collection->close(); 
+    }, true);
+  }
 }
 
 void DatabaseFeature::unprepare() {
@@ -994,6 +1004,19 @@ TRI_vocbase_t* DatabaseFeature::lookupDatabase(std::string const& name) {
   return nullptr;
 }
 
+void DatabaseFeature::enumerateDatabases(std::function<void(TRI_vocbase_t*)> func) {
+  auto unuser(_databasesProtector.use());
+  auto theLists = _databasesLists.load();
+  
+  for (auto& p : theLists->_databases) {
+    TRI_vocbase_t* vocbase = p.second;
+    // iterate over all databases
+    TRI_ASSERT(vocbase != nullptr);
+    TRI_ASSERT(vocbase->type() == TRI_VOCBASE_TYPE_NORMAL);
+    func(vocbase);
+  }
+}
+
 void DatabaseFeature::updateContexts() {
   TRI_ASSERT(_vocbase != nullptr);
 
@@ -1034,7 +1057,7 @@ void DatabaseFeature::closeDatabases() {
       TRI_ASSERT(vocbase != nullptr);
       TRI_ASSERT(vocbase->type() == TRI_VOCBASE_TYPE_NORMAL);
       if (vocbase->replicationApplier() != nullptr) {
-        vocbase->replicationApplier()->stop(false);
+        vocbase->replicationApplier()->stop(false, true);
       }
     }
   }

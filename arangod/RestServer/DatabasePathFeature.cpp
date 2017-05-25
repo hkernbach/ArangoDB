@@ -23,6 +23,7 @@
 #include "DatabasePathFeature.h"
 
 #include "ApplicationFeatures/ApplicationServer.h"
+#include "ApplicationFeatures/JemallocFeature.h"
 #include "Basics/ArangoGlobalContext.h"
 #include "Basics/FileUtils.h"
 #include "Basics/StringUtils.h"
@@ -84,6 +85,12 @@ void DatabasePathFeature::validateOptions(std::shared_ptr<ProgramOptions> option
   }
 
   ctx->normalizePath(_directory, "database.directory", false);
+
+  auto jemalloc = ApplicationServer::getFeature<JemallocFeature>("Jemalloc");
+
+  if (jemalloc != nullptr) {
+    jemalloc->setDefaultPath(_directory);
+  }
 }
 
 void DatabasePathFeature::start() {
@@ -96,7 +103,7 @@ void DatabasePathFeature::start() {
                                            systemErrorStr);
 
     if (res == TRI_ERROR_NO_ERROR) {
-      LOG_TOPIC(INFO, arangodb::Logger::FIXME) << "created database directory '" << _directory << "'.";
+      LOG_TOPIC(INFO, arangodb::Logger::FIXME) << "created database directory '" << _directory << "'";
     } else {
       LOG_TOPIC(FATAL, arangodb::Logger::FIXME) << "unable to create database directory '" << _directory << "': " << systemErrorStr;
       FATAL_ERROR_EXIT();

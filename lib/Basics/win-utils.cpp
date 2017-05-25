@@ -31,6 +31,7 @@
 #include <string.h>
 #include <malloc.h>
 #include <crtdbg.h>
+#include <VersionHelpers.h>
 
 #include "Logger/Logger.h"
 #include "Basics/files.h"
@@ -607,12 +608,21 @@ void ADB_WindowsExitFunction(int exitCode, void* data) {
 }
 
 // Detect cygwin ssh / terminals
-int
-_cyg_isatty (int fd)
+int _cyg_isatty(int fd)
 {
   // detect standard windows ttys:
   if (_isatty (fd)) {
     return 1;
+  }
+
+  // stupid hack to allow forcing a tty..need to understand this better
+  // and create a thorugh fix..without this the logging stuff will not
+  // log to the foreground which is super annoying for debugging the
+  // resilience tests
+  char *forcetty = nullptr;
+  forcetty = getenv("FORCE_WINDOWS_TTY");
+  if (forcetty != nullptr) {
+    return strcmp(forcetty, "1") == 0;
   }
   
   HANDLE fh;
@@ -655,8 +665,7 @@ _cyg_isatty (int fd)
 }
 
 // Detect cygwin ssh / terminals
-int
-_is_cyg_tty (int fd)
+int _is_cyg_tty(int fd)
 {
   // detect standard windows ttys:
   if (_isatty (fd)) {
@@ -700,4 +709,15 @@ _is_cyg_tty (int fd)
   }
   errno = EINVAL;
   return 0;
+}
+
+bool terminalKnowsANSIColors()
+{
+  if (_is_cyg_tty (STDOUT_FILENO)) {
+    // Its a cygwin shell, expected to understand ANSI color codes.
+    return true;
+  }
+  
+  // Windows 8 onwards the CMD window understands ANSI-Colorcodes.
+  return IsWindows8OrGreater();
 }

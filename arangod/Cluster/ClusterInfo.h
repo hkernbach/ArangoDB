@@ -251,6 +251,12 @@ class ClusterInfo {
   //////////////////////////////////////////////////////////////////////////////
 
   static ClusterInfo* instance();
+  
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief cleanup method which frees cluster-internal shared ptrs on shutdown
+  //////////////////////////////////////////////////////////////////////////////
+
+  static void cleanup();
 
  public:
   //////////////////////////////////////////////////////////////////////////////
@@ -349,6 +355,7 @@ class ClusterInfo {
                                   std::string const& collectionID,
                                   uint64_t numberOfShards,
                                   uint64_t replicationFactor,
+                                  bool waitForReplication,
                                   arangodb::velocypack::Slice const& json,
                                   std::string& errorMsg, double timeout);
 
@@ -484,6 +491,12 @@ class ClusterInfo {
   void invalidateCurrent();
 
   //////////////////////////////////////////////////////////////////////////////
+  /// @brief invalidate current coordinators
+  //////////////////////////////////////////////////////////////////////////////
+
+  void invalidateCurrentCoordinators();
+
+  //////////////////////////////////////////////////////////////////////////////
   /// @brief get current "Plan" structure
   //////////////////////////////////////////////////////////////////////////////
 
@@ -524,6 +537,17 @@ class ClusterInfo {
   //////////////////////////////////////////////////////////////////////////////
 
   double getReloadServerListTimeout() const { return 60.0; }
+
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief ensure an index in coordinator.
+  //////////////////////////////////////////////////////////////////////////////
+
+  int ensureIndexCoordinatorWithoutRollback(
+      std::string const& databaseName, std::string const& collectionID,
+      std::string const& idSlice, arangodb::velocypack::Slice const& slice, bool create,
+      bool (*compare)(arangodb::velocypack::Slice const&,
+                      arangodb::velocypack::Slice const&),
+      arangodb::velocypack::Builder& resultBuilder, std::string& errorMsg, double timeout);
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief object for agency communication
@@ -604,6 +628,8 @@ class ClusterInfo {
   std::unordered_map<CollectionID,
                      std::shared_ptr<std::vector<std::string>>>
       _shardKeys;  // from Plan/Collections/
+  // planned shard => servers map
+  std::unordered_map<ShardID, std::vector<ServerID>> _shardServers;
 
   // The Current state:
   AllCollectionsCurrent _currentCollections;  // from Current/Collections/

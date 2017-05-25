@@ -46,10 +46,9 @@
 
     <div class="pure-g cluster-nodes-title pure-table pure-table-header pure-title" style="clear: both">
       <div class="pure-table-row">
-        <div class="pure-u-9-24 left">Name</div>
-        <div class="pure-u-8-24 left">Endpoint</div>
-        <div class="pure-u-3-24 mid hide-small">Heartbeat</div>
-        <div class="pure-u-3-24 mid">Status</div>
+        <div class="pure-u-10-24 left">Name</div>
+        <div class="pure-u-10-24 left">Endpoint</div>
+        <div class="pure-u-3-24 mid hide-small">Since</div>
         <div class="pure-u-1-24 mid"></div>
       </div>
     </div>
@@ -60,21 +59,20 @@
 
         <div class="pure-table-row <%= disabled %>" node="<%= id %>">
 
-          <div class="pure-u-9-24 left">
+          <div class="pure-u-10-24 left">
             <%= node.ShortName %>
             <i class="fa fa-bar-chart"></i>
-            <% if(node.Status === 'FAILED') { %>
+            <% if(node.CanBeDeleted) { %>
             <i class="fa fa-trash-o"></i>
             <% } %>
           </div>
-          <div class="pure-u-8-24 left"><%= node.Endpoint %></div>
+          <div class="pure-u-10-24 left"><%= node.Endpoint %></div>
 
           <% var formatted = (node.LastHeartbeatAcked).substr(11, 18).slice(0, -1); %>
           <div class="pure-u-3-24 hide-small mid"><%= formatted %></div>
-          <div class="pure-u-3-24 mid"><%= node.LastHeartbeatStatus %></div>
-
+          
           <% if(node.Status === 'GOOD') { %>
-            <div class="pure-u-1-24 mid state"><i class="fa fa-check-circle"></i></div>
+            <div class="pure-u-1-24 mid state"><i class="fa fa-check-circle tippy" title="<%= node.LastHeartbeatStatus %>"></i></div>
           <% } else { %>
             <div class="pure-u-1-24 mid state"><i class="fa fa-exclamation-circle"></i></div>
           <% } %>
@@ -89,7 +87,7 @@
 
   <% if (Object.keys(dbs).length > 0) { %>
     <% var disabled = ''; %>
-    <% disabled = " disabled"; %>
+    <% disabled = " dbserver"; %>
     <div class="pure-u-1-1 pure-u-md-1-1 pure-u-lg-1-1 pure-u-xl-1-2">
       <div class="sectionHeader pure-g">
         <div class="pure-u-1-5">
@@ -127,10 +125,9 @@
 
     <div class="pure-g cluster-nodes-title pure-table pure-table-header pure-title">
       <div class="pure-table-row">
-        <div class="pure-u-9-24 left">Name</div>
-        <div class="pure-u-8-24 left">Endpoint</div>
-        <div class="pure-u-3-24 mid hide-small">Heartbeat</div>
-        <div class="pure-u-3-24 mid">Status</div>
+        <div class="pure-u-10-24 left">Name</div>
+        <div class="pure-u-10-24 left">Endpoint</div>
+        <div class="pure-u-3-24 mid hide-small">Since</div>
         <div class="pure-u-1-24 mid"></div>
       </div>
     </div>
@@ -140,17 +137,21 @@
       <% _.each(dbs, function(node, name) { %>
         <% var id = name + "-node"; %>
 
-        <div class="pure-table-row <%= disabled %>" id="<%= id %>">
+        <div class="pure-table-row <%= disabled %>" node="<%= id %>">
 
-          <div class="pure-u-9-24 left"><%= node.ShortName %></div>
-          <div class="pure-u-8-24 left"><%= node.Endpoint %></div>
+          <div class="pure-u-10-24 left">
+            <%= node.ShortName %>
+            <% if(node.CanBeDeleted) { %>
+            <i class="fa fa-trash-o"></i>
+            <% } %>
+          </div>
+          <div class="pure-u-10-24 left"><%= node.Endpoint %></div>
 
           <% var formatted = (node.LastHeartbeatAcked).substr(11, 18).slice(0, -1); %>
           <div class="pure-u-3-24 mid hide-small"><%= formatted %></div>
-          <div class="pure-u-3-24 mid"><%= node.LastHeartbeatStatus %></div>
 
           <% if(node.Status === 'GOOD') { %>
-            <div class="pure-u-1-24 mid state"><i class="fa fa-check-circle"></i></div>
+            <div class="pure-u-1-24 mid state"><i class="fa fa-check-circle tippy" title="<%= node.LastHeartbeatStatus %>"></i></div>
           <% } else { %>
             <div class="pure-u-1-24 mid state"><i class="fa fa-exclamation-circle"></i></div>
           <% } %>

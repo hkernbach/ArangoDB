@@ -27,6 +27,7 @@
 #include "Aql/CalculationBlock.h"
 #include "Aql/ClusterBlocks.h"
 #include "Aql/CollectBlock.h"
+#include "Aql/Collection.h"
 #include "Aql/CollectNode.h"
 #include "Aql/CollectOptions.h"
 #include "Aql/EnumerateCollectionBlock.h"
@@ -234,10 +235,11 @@ struct Instanciator final : public WalkerWorker<ExecutionNode> {
   virtual void after(ExecutionNode* en) override final {
     ExecutionBlock* block = nullptr;
     {
-      if (en->getType() == ExecutionNode::TRAVERSAL) {
+      if (en->getType() == ExecutionNode::TRAVERSAL || en->getType() == ExecutionNode::SHORTEST_PATH) {
         // We have to prepare the options before we build the block
-        static_cast<TraversalNode*>(en)->prepareOptions();
+        static_cast<GraphNode*>(en)->prepareOptions();
       }
+
       std::unique_ptr<ExecutionBlock> eb(CreateBlock(engine, en, cache, std::unordered_set<std::string>()));
 
       if (eb == nullptr) {
@@ -851,7 +853,7 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
 
   /// @brief Build traverser engines on DBServers. Coordinator still uses
   ///        traversal block.
-  void buildTraverserEnginesForNode(TraversalNode* en) {
+  void buildTraverserEnginesForNode(GraphNode* en) {
     // We have to initialize all options. After this point the node
     // is not cloneable any more.
     en->prepareOptions();
@@ -1071,7 +1073,7 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
           VPackSlice resultSlice = builder->slice();
           if (!resultSlice.isNumber()) {
             THROW_ARANGO_EXCEPTION_MESSAGE(
-                TRI_ERROR_INTERNAL, "got unexpected response from engine build request");
+                TRI_ERROR_INTERNAL, "got unexpected response from engine build request: '" + resultSlice.toJson() + "'");
           }
           auto engineId = resultSlice.getNumericValue<traverser::TraverserEngineID>();
           TRI_ASSERT(engineId != 0);
@@ -1163,8 +1165,8 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
       engines.emplace_back(currentLocation, currentEngineId, part, en->id());
     }
 
-    if (nodeType == ExecutionNode::TRAVERSAL) {
-      buildTraverserEnginesForNode(static_cast<TraversalNode*>(en));
+    if (nodeType == ExecutionNode::TRAVERSAL || nodeType == ExecutionNode::SHORTEST_PATH) {
+      buildTraverserEnginesForNode(static_cast<GraphNode*>(en));
     }
 
     return false;
@@ -1187,25 +1189,26 @@ struct CoordinatorInstanciator : public WalkerWorker<ExecutionNode> {
   
 /// @brief shutdown, will be called exactly once for the whole query
 int ExecutionEngine::shutdown(int errorCode) {
+  int res = TRI_ERROR_NO_ERROR;
   if (_root != nullptr && !_wasShutdown) {
     // Take care of locking prevention measures in the cluster:
     if (_lockedShards != nullptr) {
       if (CollectionLockState::_noLockHeaders == _lockedShards) {
         CollectionLockState::_noLockHeaders = _previouslyLockedShards;
       }
+
       delete _lockedShards;
       _lockedShards = nullptr;
       _previouslyLockedShards = nullptr;
     }
 
+    res = _root->shutdown(errorCode);
+ 
     // prevent a duplicate shutdown
-    int res = _root->shutdown(errorCode);
     _wasShutdown = true;
-
-    return res;
   }
 
-  return TRI_ERROR_NO_ERROR;
+  return res;
 }
 
 /// @brief create an execution engine from a plan
@@ -1238,9 +1241,9 @@ ExecutionEngine* ExecutionEngine::instantiateFromPlan(
       // optionally restrict query to certain shards
       inst->includedShards(query->includedShards());
 
-      plan->root()->walk(inst.get());
-
       try {
+        plan->root()->walk(inst.get());  // if this throws, we need to
+                                         // clean up as well
         engine = inst.get()->buildEngines();
         root = engine->root();
         // Now find all shards that take part:

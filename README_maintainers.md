@@ -31,6 +31,8 @@ CMake flags
  * *-DUSE_FAILURE_TESTS=1* - adds javascript hook to crash the server for data integrity tests
  * *-DUSE_CATCH_TESTS=On (default is On so this is set unless you explicitly disable it)
 
+If you have made changes to errors.dat, remember to use the -DUSE_MAINTAINER_MODE flag.
+
 CFLAGS
 ------
 Add backtraces to cluster requests so you can easily track their origin:
@@ -284,16 +286,16 @@ valgrind could look like this. Options are passed as regular long values in the
 syntax --option value --sub:option value. Using Valgrind could look like this:
 
     ./scripts/unittest single_server --test js/server/tests/aql/aql-escaping.js \
-      --extraargs:server.threads 1 \
-      --extraargs:scheduler.threads 1 \
-      --extraargs:javascript.gc-frequency 1000000 \
-      --extraargs:javascript.gc-interval 65536 \
+      --extraArgs:server.threads 1 \
+      --extraArgs:scheduler.threads 1 \
+      --extraArgs:javascript.gc-frequency 1000000 \
+      --extraArgs:javascript.gc-interval 65536 \
       --javascript.v8-contexts 2 \
       --valgrind /usr/bin/valgrind \
       --valgrindargs:log-file /tmp/valgrindlog.%p
 
  - we specify the test to execute
- - we specify some arangod arguments via --extraargs which increase the server performance
+ - we specify some arangod arguments via --extraArgs which increase the server performance
  - we specify to run using valgrind (this is supported by all facilities)
  - we specify some valgrind commandline arguments
 
@@ -486,24 +488,6 @@ Dependencies to build documentation:
 
 - [swagger 2](http://swagger.io/) for the API-Documentation inside aardvark (no installation required)
 
-- Python Setuptools
-
-    https://pypi.python.org/pypi/setuptools
-
-    Download setuptools zip file, extract to any folder to install:
-
-        python ez_install.py
-
-  This will place the required files in python's Lib/site-packages folder.
-
-- MarkdownPP
-
-    https://github.com/arangodb-helper/markdown-pp/
-
-    Checkout the code with Git, use your system python to install:
-
-        python setup.py install
-
 - [Node.js](https://nodejs.org/)
 
     Make sure the option to *Add to PATH* is enabled.
@@ -564,7 +548,7 @@ restrictions. You can use pythons build in http server for this.
 
 To only regereneate one file (faster) you may specify a filter:
 
-    make build-book NAME=Manual FILTER=Manual/Aql/Invoke.mdpp
+    make build-book NAME=Manual FILTER=Manual/Aql/Invoke.md
 
 (regular expressions allowed)
 
@@ -613,7 +597,7 @@ generate
 
 write markdown
 --------------
-*mdpp* files are used for the structure. To join it with parts extracted from the program documentation
+*md* files are used for the structure. To join it with parts extracted from the program documentation
 you need to place hooks:
   - `@startDocuBlock <tdocuBlockName>` is replaced by a Docublock extracted from source.
   - `@startDocuBlockInline <docuBlockName>` till `@endDocuBlock <docuBlockName>`
@@ -638,8 +622,8 @@ arangod Example tool
 `./utils/generateExamples.sh` picks examples from the code documentation, executes them, and creates a transcript including their results.
 
 Here is how its details work:
-  - all *Documentation/DocuBlocks/*.md* and *Documentation/Books/*.mdpp* are searched.
-  - all lines inside of source code starting with '///' are matched, all lines in .mdpp files.
+  - all *Documentation/DocuBlocks/*.md* and *Documentation/Books/*.md* are searched.
+  - all lines inside of source code starting with '///' are matched, all lines in .md files.
   - an example start is marked with *@EXAMPLE_ARANGOSH_OUTPUT* or *@EXAMPLE_ARANGOSH_RUN*
   - the example is named by the string provided in brackets after the above key
   - the output is written to `Documentation/Examples/<name>.generated`
@@ -752,7 +736,7 @@ RESTBODYPARAM
 Attributes:
   - name - the name of the parameter
   - type - the swaggertype of the parameter
-  - required/optional - whether the user can ommit this parameter
+  - required/optional - whether the user can omit this parameter
   - subtype / format (can be empty)
     - subtype: if type is object or array, this references the enclosed variables.
                can be either a swaggertype, or a *RESTRUCT*
@@ -767,7 +751,7 @@ Attributes:
   - name - the name of the parameter
   - structure name - the **type** under which this structure can be reached (should be uniq!)
   - type - the swaggertype of the parameter (or another *RESTSTRUCT*...)
-  - required/optional - whether the user can ommit this parameter
+  - required/optional - whether the user can omit this parameter
   - subtype / format (can be empty)
     - subtype: if type is object or array, this references the enclosed variables.
                can be either a swaggertype, or a *RESTRUCT*

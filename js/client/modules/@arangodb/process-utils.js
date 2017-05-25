@@ -301,10 +301,11 @@ function makeArgsArangod (options, appDir, role) {
     'define': 'TOP_DIR=' + TOP_DIR,
     'wal.flush-timeout': options.walFlushTimeout,
     'javascript.app-path': appDir,
-    'http.trusted-origin': options.httpTrustedOrigin || 'all'
+    'http.trusted-origin': options.httpTrustedOrigin || 'all',
+    'cluster.create-waits-for-sync-replication': false
   };
-  if (options.storageEngine !== 'mmfiles') {
-    args['server.storage-engine'] = 'rocksdb';
+  if (options.storageEngine !== undefined) {
+    args['server.storage-engine'] = options.storageEngine;
   }
   return args;
 }
@@ -526,6 +527,11 @@ function runArangoDumpRestore (options, instanceInfo, which, database, rootDir) 
     args['create-database'] = 'true';
     args['input-directory'] = fs.join(instanceInfo.rootDir, 'dump');
     exe = ARANGORESTORE_BIN;
+  }
+
+  if (options.extremeVerbosity === true) {
+    print(exe);
+    print(args);
   }
 
   return executeAndWait(exe, toArgv(args), options, 'arangorestore', instanceInfo.rootDir);
@@ -790,6 +796,7 @@ function shutdownInstance (instanceInfo, options, forceTerminate) {
       } else if (arangod.exitStatus.status !== 'TERMINATED') {
         if (arangod.exitStatus.hasOwnProperty('signal')) {
           analyzeServerCrash(arangod, options, 'instance Shutdown - ' + arangod.exitStatus.signal);
+          serverCrashed = true;
         }
       } else {
         print('Server shutdown: Success: pid', arangod.pid);
@@ -841,6 +848,11 @@ function startInstanceCluster (instanceInfo, protocol, options,
   startInstanceAgency(instanceInfo, protocol, options, ...makeArgs('agency', 'agency', {}));
 
   let agencyEndpoint = instanceInfo.endpoint;
+
+  if (!checkInstanceAlive(instanceInfo, options)) {
+    throw new Error('startup of agency failed! bailing out!');
+  }
+
   let i;
   for (i = 0; i < options.dbServers; i++) {
     let port = findFreePort(options.minPort, options.maxPort, usedPorts);
@@ -878,24 +890,45 @@ function startInstanceCluster (instanceInfo, protocol, options,
   httpOptions.returnBodyOnError = true;
 
   let count = 0;
-  instanceInfo.arangods.forEach(arangod => {
-    while (true) {
+  while (true) {
+    ++count;
+    if (count === 500) {
+      instanceInfo.arangods.forEach(arangod => {
+        print('forcefully terminating ' + arangod.role + ' with pid: ' + arangod.pid);
+        killExternal(arangod.pid, 9);
+      });
+
+      throw new Error('cluster startup timed out! bailing out!');
+    }
+    instanceInfo.arangods.forEach(arangod => {
       const reply = download(arangod.url + '/_api/version', '', makeAuthorizationHeaders(options));
 
       if (!reply.error && reply.code === 200) {
-        break;
+        arangod.upAndRunning = true;
+        return true;
       }
 
-      ++count;
+      if (!checkArangoAlive(arangod, options)) {
+        instanceInfo.arangods.forEach(arangod => {
+          print('forcefully terminating ' + arangod.role + ' with pid: ' + arangod.pid);
+          killExternal(arangod.pid, 9);
+        });
 
-      if (count % 180 === 0) {
-        if (!checkArangoAlive(arangod, options)) {
-          throw new Error('startup failed! bailing out!');
-        }
+        throw new Error('cluster startup failed! bailing out!');
       }
       wait(0.5, false);
+    });
+
+    let upAndRunning = 0;
+    instanceInfo.arangods.forEach(arangod => {
+      if (arangod.upAndRunning) {
+        upAndRunning += 1;
+      }
+    });
+    if (upAndRunning === instanceInfo.arangods.length) {
+      break;
     }
-  });
+  }
   arango.reconnect(instanceInfo.endpoint, '_system', 'root', '');
 
   return true;
@@ -974,7 +1007,7 @@ function startArango (protocol, options, addArgs, rootDir, role) {
       instanceInfo.monitor = executeExternal('procdump', procdumpArgs);
     } catch (x) {
       print('failed to start procdump - is it installed?');
-      throw x;
+      //throw x;
     }
   }
   return instanceInfo;

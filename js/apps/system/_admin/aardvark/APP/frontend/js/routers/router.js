@@ -39,7 +39,8 @@
       'nodes': 'nodes',
       'shards': 'shards',
       'node/:name': 'node',
-      'logs': 'logs',
+      'nodeInfo/:id': 'nodeInfo',
+      'logs': 'logger',
       'helpus': 'helpUs',
       'graph/:name': 'graph',
       'graph/:name/settings': 'graphSettings',
@@ -55,6 +56,15 @@
       if (this.lastRoute === '#dasboard' || window.location.hash.substr(0, 5) === '#node') {
         // dom graph cleanup
         d3.selectAll('svg > *').remove();
+      }
+
+      if (this.lastRoute === '#logger') {
+        if (this.loggerView.logLevelView) {
+          this.loggerView.logLevelView.remove();
+        }
+        if (this.loggerView.logTopicView) {
+          this.loggerView.logTopicView.remove();
+        }
       }
 
       this.lastRoute = window.location.hash;
@@ -318,14 +328,38 @@
         return;
       }
 
-      if (!this.nodeView) {
-        this.nodeView = new window.NodeView({
-          coordname: name,
-          coordinators: this.coordinatorCollection,
-          dbServers: this.dbServers
-        });
+      if (this.nodeView) {
+        this.nodeView.remove();
       }
+      this.nodeView = new window.NodeView({
+        coordname: name,
+        coordinators: this.coordinatorCollection,
+        dbServers: this.dbServers
+      });
       this.nodeView.render();
+    },
+
+    nodeInfo: function (id, initialized) {
+      this.checkUser();
+      if (!initialized || this.isCluster === undefined) {
+        this.waitForInit(this.nodeInfo.bind(this), id);
+        return;
+      }
+      if (this.isCluster === false) {
+        this.routes[''] = 'dashboard';
+        this.navigate('#dashboard', {trigger: true});
+        return;
+      }
+
+      if (this.nodeInfoView) {
+        this.nodeInfoView.remove();
+      }
+      this.nodeInfoView = new window.NodeInfoView({
+        nodeId: id,
+        coordinators: this.coordinatorCollection,
+        dbServers: this.dbServers[0]
+      });
+      this.nodeInfoView.render();
     },
 
     shards: function (initialized) {
@@ -358,10 +392,11 @@
         this.navigate('#dashboard', {trigger: true});
         return;
       }
-      if (!this.nodesView) {
-        this.nodesView = new window.NodesView({
-        });
+      if (this.nodesView) {
+        this.nodesView.remove();
       }
+      this.nodesView = new window.NodesView({
+      });
       this.nodesView.render();
     },
 
@@ -442,71 +477,22 @@
       xhr.setRequestHeader('Authorization', 'Basic ' + btoa(token));
     },
 
-    logs: function (name, initialized) {
+    logger: function (name, initialized) {
       this.checkUser();
       if (!initialized) {
-        this.waitForInit(this.logs.bind(this), name);
+        this.waitForInit(this.logger.bind(this), name);
         return;
       }
-      if (!this.logsView) {
-        var newLogsAllCollection = new window.ArangoLogs(
+      if (!this.loggerView) {
+        var co = new window.ArangoLogs(
           {upto: true, loglevel: 4}
         );
-        var newLogsDebugCollection = new window.ArangoLogs(
-          {loglevel: 4}
-        );
-        var newLogsInfoCollection = new window.ArangoLogs(
-          {loglevel: 3}
-        );
-        var newLogsWarningCollection = new window.ArangoLogs(
-          {loglevel: 2}
-        );
-        var newLogsErrorCollection = new window.ArangoLogs(
-          {loglevel: 1}
-        );
-        this.logsView = new window.LogsView({
-          logall: newLogsAllCollection,
-          logdebug: newLogsDebugCollection,
-          loginfo: newLogsInfoCollection,
-          logwarning: newLogsWarningCollection,
-          logerror: newLogsErrorCollection
+        this.loggerView = new window.LoggerView({
+          collection: co
         });
       }
-      this.logsView.render();
+      this.loggerView.render();
     },
-
-    /*
-    nLogs: function (nodename, initialized) {
-      this.checkUser()
-      if (!initialized) {
-        this.waitForInit(this.nLogs.bind(this), nodename)
-        return
-      }
-      var newLogsAllCollection = new window.ArangoLogs(
-        {upto: true, loglevel: 4}
-      ),
-      newLogsDebugCollection = new window.ArangoLogs(
-        {loglevel: 4}
-      ),
-      newLogsInfoCollection = new window.ArangoLogs(
-        {loglevel: 3}
-      ),
-      newLogsWarningCollection = new window.ArangoLogs(
-        {loglevel: 2}
-      ),
-      newLogsErrorCollection = new window.ArangoLogs(
-        {loglevel: 1}
-      )
-      this.nLogsView = new window.LogsView({
-        logall: newLogsAllCollection,
-        logdebug: newLogsDebugCollection,
-        loginfo: newLogsInfoCollection,
-        logwarning: newLogsWarningCollection,
-        logerror: newLogsErrorCollection
-      })
-      this.nLogsView.render()
-    },
-    */
 
     applicationDetail: function (mount, initialized) {
       this.checkUser();
@@ -562,11 +548,12 @@
         return;
       }
       var self = this;
-      if (!this.collectionsView) {
-        this.collectionsView = new window.CollectionsView({
-          collection: this.arangoCollectionsStore
-        });
+      if (this.collectionsView) {
+        this.collectionsView.remove();
       }
+      this.collectionsView = new window.CollectionsView({
+        collection: this.arangoCollectionsStore
+      });
       this.arangoCollectionsStore.fetch({
         cache: false,
         success: function () {
@@ -647,6 +634,9 @@
         this.waitForInit(this.documents.bind(this), colid, pageid);
         return;
       }
+      if (this.documentsView) {
+        this.documentsView.unbindEvents();
+      }
       if (!this.documentsView) {
         this.documentsView = new window.DocumentsView({
           collection: new window.ArangoDocuments(),
@@ -656,6 +646,7 @@
       }
       this.documentsView.setCollectionId(colid, pageid);
       this.documentsView.render();
+      this.documentsView.delegateEvents();
     },
 
     document: function (colid, docid, initialized) {
@@ -664,12 +655,18 @@
         this.waitForInit(this.document.bind(this), colid, docid);
         return;
       }
-      if (!this.documentView) {
-        this.documentView = new window.DocumentView({
-          collection: this.arangoDocumentStore
-        });
+      var mode;
+      if (this.documentView) {
+        if (this.documentView.defaultMode) {
+          mode = this.documentView.defaultMode;
+        }
+        this.documentView.remove();
       }
+      this.documentView = new window.DocumentView({
+        collection: this.arangoDocumentStore
+      });
       this.documentView.colid = colid;
+      this.documentView.defaultMode = mode;
 
       var doc = window.location.hash.split('/')[2];
       var test = (doc.split('%').length - 1) % 3;

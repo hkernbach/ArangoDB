@@ -38,9 +38,11 @@ static rocksdb::Slice Collection(
         &collection),
     1);
 
-static RocksDBEntryType index = RocksDBEntryType::Index;
-static rocksdb::Slice Index(
-    reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(&index), 1);
+static RocksDBEntryType counterVal = RocksDBEntryType::CounterValue;
+static rocksdb::Slice CounterValue(
+    reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(
+        &counterVal),
+    1);
 
 static RocksDBEntryType document = RocksDBEntryType::Document;
 static rocksdb::Slice Document(
@@ -70,38 +72,118 @@ static rocksdb::Slice UniqueIndexValue(
     reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(
         &uniqueIndexValue),
     1);
+  
+static RocksDBEntryType fulltextIndexValue =
+RocksDBEntryType::FulltextIndexValue;
+static rocksdb::Slice FulltextIndexValue(
+     reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(
+        &fulltextIndexValue),
+     1);
+  
+static RocksDBEntryType geoIndexValue =
+RocksDBEntryType::GeoIndexValue;
+static rocksdb::Slice GeoIndexValue(
+     reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(
+        &geoIndexValue),
+     1);
 
 static RocksDBEntryType view = RocksDBEntryType::View;
 static rocksdb::Slice View(
     reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(&view), 1);
 
-static RocksDBEntryType counterVal = RocksDBEntryType::CounterValue;
-static rocksdb::Slice CounterValue(
-                           reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(&counterVal), 1);
+static RocksDBEntryType settingsValue = RocksDBEntryType::SettingsValue;
+static rocksdb::Slice SettingsValue(
+    reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(
+        &settingsValue),
+    1);
+
+static RocksDBEntryType replicationApplierConfig =
+    RocksDBEntryType::ReplicationApplierConfig;
+static rocksdb::Slice ReplicationApplierConfig(
+    reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(
+        &replicationApplierConfig),
+    1);
+
+static RocksDBEntryType indexEstimateValue = RocksDBEntryType::IndexEstimateValue;
+static rocksdb::Slice IndexEstimateValue(
+    reinterpret_cast<std::underlying_type<RocksDBEntryType>::type*>(
+        &indexEstimateValue),
+    1);
+}
+
+char const* arangodb::rocksDBEntryTypeName(arangodb::RocksDBEntryType type) {
+  switch (type) {
+    case arangodb::RocksDBEntryType::Database: return "Database";
+    case arangodb::RocksDBEntryType::Collection: return "Collection";
+    case arangodb::RocksDBEntryType::CounterValue: return "CounterValue";
+    case arangodb::RocksDBEntryType::Document: return "Document";
+    case arangodb::RocksDBEntryType::PrimaryIndexValue: return "PrimaryIndexValue";
+    case arangodb::RocksDBEntryType::EdgeIndexValue: return "EdgeIndexValue";
+    case arangodb::RocksDBEntryType::IndexValue: return "IndexValue";
+    case arangodb::RocksDBEntryType::UniqueIndexValue: return "UniqueIndexValue";
+    case arangodb::RocksDBEntryType::View: return "View";
+    case arangodb::RocksDBEntryType::SettingsValue: return "SettingsValue";
+    case arangodb::RocksDBEntryType::ReplicationApplierConfig: return "ReplicationApplierConfig";
+    case arangodb::RocksDBEntryType::FulltextIndexValue: return "FulltextIndexValue";
+    case arangodb::RocksDBEntryType::GeoIndexValue: return "GeoIndexValue";
+    case arangodb::RocksDBEntryType::IndexEstimateValue: return "IndexEstimateValue";
+  }
+  return "Invalid";
+}
+
+char const* arangodb::rocksDBLogTypeName(arangodb::RocksDBLogType type) {
+  switch (type) {
+    case arangodb::RocksDBLogType::DatabaseCreate: return "DatabaseCreate";
+    case arangodb::RocksDBLogType::DatabaseDrop: return "DatabaseDrop";
+    case arangodb::RocksDBLogType::CollectionCreate: return "CollectionCreate";
+    case arangodb::RocksDBLogType::CollectionDrop: return "CollectionDrop";
+    case arangodb::RocksDBLogType::CollectionRename: return "CollectionRename";
+    case arangodb::RocksDBLogType::CollectionChange: return "CollectionChange";
+    case arangodb::RocksDBLogType::IndexCreate: return "IndexCreate";
+    case arangodb::RocksDBLogType::IndexDrop: return "IndexDrop";
+    case arangodb::RocksDBLogType::ViewCreate: return "ViewCreate";
+    case arangodb::RocksDBLogType::ViewDrop: return "ViewDrop";
+    case arangodb::RocksDBLogType::ViewChange: return "ViewChange";
+    case arangodb::RocksDBLogType::BeginTransaction: return "BeginTransaction";
+    case arangodb::RocksDBLogType::DocumentOperationsPrologue: return "DocumentOperationsPrologue";
+    case arangodb::RocksDBLogType::DocumentRemove: return "DocumentRemove";
+    case arangodb::RocksDBLogType::SinglePut: return "SinglePut";
+    case arangodb::RocksDBLogType::SingleRemove: return "SingleRemove";
+    case arangodb::RocksDBLogType::Invalid: return "Invalid";
+  }
+  return "Invalid";
 }
 
 rocksdb::Slice const& arangodb::rocksDBSlice(RocksDBEntryType const& type) {
   switch (type) {
-    case RocksDBEntryType::Document:
-      return Document;
-    case RocksDBEntryType::Collection:
-      return Collection;
     case RocksDBEntryType::Database:
       return Database;
+    case RocksDBEntryType::Collection:
+      return Collection;
+    case RocksDBEntryType::CounterValue:
+      return CounterValue;
+    case RocksDBEntryType::Document:
+      return Document;
     case RocksDBEntryType::PrimaryIndexValue:
       return PrimaryIndexValue;
     case RocksDBEntryType::EdgeIndexValue:
       return EdgeIndexValue;
-    case RocksDBEntryType::Index:
-      return Index;
     case RocksDBEntryType::IndexValue:
       return IndexValue;
     case RocksDBEntryType::UniqueIndexValue:
       return UniqueIndexValue;
+    case RocksDBEntryType::FulltextIndexValue:
+      return FulltextIndexValue;
+    case RocksDBEntryType::GeoIndexValue:
+      return GeoIndexValue;
     case RocksDBEntryType::View:
       return View;
-    case RocksDBEntryType::CounterValue:
-      return CounterValue;
+    case RocksDBEntryType::SettingsValue:
+      return SettingsValue;
+    case RocksDBEntryType::ReplicationApplierConfig:
+      return ReplicationApplierConfig;
+    case RocksDBEntryType::IndexEstimateValue:
+      return IndexEstimateValue;
   }
 
   return Document;  // avoids warning - errorslice instead ?!

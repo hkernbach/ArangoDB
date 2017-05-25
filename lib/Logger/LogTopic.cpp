@@ -49,16 +49,17 @@ LogTopic Logger::CONFIG("config");
 LogTopic Logger::DATAFILES("datafiles", LogLevel::INFO);
 LogTopic Logger::DEVEL("development", LogLevel::FATAL);
 LogTopic Logger::ENGINES("engines", LogLevel::INFO);
-LogTopic Logger::FIXME("fixme", LogLevel::INFO);
+LogTopic Logger::FIXME("general", LogLevel::INFO);
 LogTopic Logger::GRAPHS("graphs", LogLevel::INFO);
 LogTopic Logger::HEARTBEAT("heartbeat", LogLevel::INFO);
-LogTopic Logger::MEMORY("memory", LogLevel::FATAL);  // suppress
+LogTopic Logger::MEMORY("memory", LogLevel::WARN);
 LogTopic Logger::MMAP("mmap");
-LogTopic Logger::PERFORMANCE("performance", LogLevel::FATAL);  // suppress
+LogTopic Logger::PERFORMANCE("performance", LogLevel::WARN);
 LogTopic Logger::PREGEL("pregel", LogLevel::INFO);
 LogTopic Logger::QUERIES("queries", LogLevel::INFO);
 LogTopic Logger::REPLICATION("replication", LogLevel::INFO);
 LogTopic Logger::REQUESTS("requests", LogLevel::FATAL);  // suppress
+LogTopic Logger::ROCKSDB("rocksdb", LogLevel::WARN);
 LogTopic Logger::SSL("ssl", LogLevel::WARN);
 LogTopic Logger::STARTUP("startup", LogLevel::INFO);
 LogTopic Logger::SUPERVISION("supervision", LogLevel::INFO);
@@ -136,7 +137,7 @@ LogTopic::LogTopic(std::string const& name, LogLevel level)
     : _id(NEXT_TOPIC_ID.fetch_add(1, std::memory_order_seq_cst)),
       _name(name),
       _level(level) {
-  if (name != "fixme") {
+  if (name != "fixme" && name != "general") {
     // "fixme" is a remainder from ArangoDB < 3.2, when it was
     // allowed to log messages without a topic. From 3.2 onwards,
     // logging is always topic-based, and all previously topicless

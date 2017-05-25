@@ -39,11 +39,13 @@ namespace cache {
 ////////////////////////////////////////////////////////////////////////////////
 class Table : public std::enable_shared_from_this<Table> {
  public:
+   static constexpr double idealLowerRatio = 0.05;
+   static constexpr double idealUpperRatio = 0.33;
   static const uint32_t minLogSize;
   static const uint32_t maxLogSize;
   static constexpr uint32_t standardLogSizeAdjustment = 6;
   static constexpr int64_t triesGuarantee = -1;
-  static constexpr uint64_t padding = 64;
+  static constexpr uint64_t padding = BUCKET_SIZE;
 
   typedef std::function<void(void*)> BucketClearer;
 
@@ -132,7 +134,7 @@ class Table : public std::enable_shared_from_this<Table> {
   /// @brief Returns a pointer to the specified bucket in the primary table,
   /// regardless of migration status.
   //////////////////////////////////////////////////////////////////////////////
-  void* primaryBucket(uint32_t index);
+  void* primaryBucket(uint64_t index);
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Returns a subtable in the auxiliary index which corresponds to the
@@ -174,14 +176,18 @@ class Table : public std::enable_shared_from_this<Table> {
   bool slotEmptied();
 
   //////////////////////////////////////////////////////////////////////////////
+  /// @brief Report that there have been too many evictions.
+  ///
+  /// Will force a subsequent idealSize() call to return a larger table size.
+  //////////////////////////////////////////////////////////////////////////////
+  void signalEvictions();
+
+  //////////////////////////////////////////////////////////////////////////////
   /// @brief Returns the ideal size of the table based on fill ratio.
   //////////////////////////////////////////////////////////////////////////////
-  uint32_t idealSize() const;
+  uint32_t idealSize();
 
  private:
-  static constexpr double idealLowerRatio = 0.125;
-  static constexpr double idealUpperRatio = 0.75;
-
   State _state;
 
   uint32_t _logSize;

@@ -46,7 +46,7 @@ using namespace arangodb::basics;
 #endif
 
 uint16_t const EndpointIp::_defaultPortHttp = 8529;
-uint16_t const EndpointIp::_defaultPortVpp = 8530;
+uint16_t const EndpointIp::_defaultPortVst = 8530;
 char const* EndpointIp::_defaultHost = "127.0.0.1";
 
 static std::string buildSpecification(Endpoint::DomainType domainType,
@@ -60,7 +60,7 @@ static std::string buildSpecification(Endpoint::DomainType domainType,
     case Endpoint::TransportType::HTTP:
       specification = "http+";
       break;
-    case Endpoint::TransportType::VPP:
+    case Endpoint::TransportType::VST:
       specification = "vst+";
       break;
   }
@@ -190,7 +190,7 @@ TRI_socket_t EndpointIp::connectSocket(const struct addrinfo* aip,
 #endif
 
     // server needs to bind to socket
-    int result = TRI_bind(listenSocket, aip->ai_addr, (int)aip->ai_addrlen);
+    int result = TRI_bind(listenSocket, aip->ai_addr, aip->ai_addrlen);
 
     if (result != 0) {
       pErr = STR_ERROR();
@@ -228,7 +228,7 @@ TRI_socket_t EndpointIp::connectSocket(const struct addrinfo* aip,
     setTimeout(listenSocket, connectTimeout);
 
     int result = TRI_connect(listenSocket, (const struct sockaddr*)aip->ai_addr,
-                             (int)aip->ai_addrlen);
+                             aip->ai_addrlen);
 
     if (result != 0) {
       pErr = STR_ERROR();

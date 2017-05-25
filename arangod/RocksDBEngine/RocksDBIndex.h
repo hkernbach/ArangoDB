@@ -28,58 +28,104 @@
 #include "Basics/Common.h"
 #include "Indexes/Index.h"
 #include "RocksDBEngine/RocksDBKeyBounds.h"
+#include <rocksdb/status.h>
+
+namespace rocksdb {class Comparator;}
 
 namespace arangodb {
 namespace cache {
 class Cache;
-class Manager;
 }
 class LogicalCollection;
-class RocksDBComparator;
+class RocksDBCounterManager;
+class RocksDBMethods;
 
 class RocksDBIndex : public Index {
+
+ protected:
+   // This is the number of distinct elements the index estimator can reliably store
+   // This correlates directly with the memmory of the estimator:
+   // memmory == ESTIMATOR_SIZE * 6 bytes
+  static uint64_t const ESTIMATOR_SIZE;
+
  protected:
   RocksDBIndex(TRI_idx_iid_t, LogicalCollection*,
                std::vector<std::vector<arangodb::basics::AttributeName>> const&
                    attributes,
-               bool unique, bool sparse, uint64_t objectId = 0);
+               bool unique, bool sparse, uint64_t objectId = 0, bool useCache = false);
 
   RocksDBIndex(TRI_idx_iid_t, LogicalCollection*,
-               arangodb::velocypack::Slice const&);
+               arangodb::velocypack::Slice const&, bool useCache = false);
 
  public:
-
   ~RocksDBIndex();
+  void toVelocyPackFigures(VPackBuilder& builder) const override;
 
   uint64_t objectId() const { return _objectId; }
 
   bool isPersistent() const override final { return true; }
 
+  /// @brief return a VelocyPack representation of the index
+  void toVelocyPack(velocypack::Builder& builder, bool withFigures,
+                    bool forPersistence) const override;
+
   int drop() override;
-  
-  int unload() override {
-    // nothing to do here yet
-    // TODO: free the cache the index uses
-    return TRI_ERROR_NO_ERROR;
-  }
+
+  int unload() override;
+
+  virtual void truncate(transaction::Methods*);
 
   /// @brief provides a size hint for the index
-  int sizeHint(transaction::Methods* /*trx*/, size_t /*size*/) override final{
+  int sizeHint(transaction::Methods* /*trx*/, size_t /*size*/) override final {
     // nothing to do here
     return TRI_ERROR_NO_ERROR;
   }
 
- protected:
+  /// insert index elements into the specified write batch. Should be used
+  /// as an optimization for the non transactional fillIndex method
+  virtual int insertRaw(RocksDBMethods*, TRI_voc_rid_t,
+                        arangodb::velocypack::Slice const&) = 0;
+
+  /// remove index elements and put it in the specified write batch. Should be
+  /// used as an optimization for the non transactional fillIndex method
+  virtual int removeRaw(RocksDBMethods*, TRI_voc_rid_t,
+                        arangodb::velocypack::Slice const&) = 0;
+
   void createCache();
+  void disableCache();
+
+  virtual void serializeEstimate(std::string& output) const;
+
+  virtual bool deserializeEstimate(RocksDBCounterManager* mgr);
+
+  virtual void recalculateEstimates();
+  
+  rocksdb::Comparator const* comparator() const;
+
+ protected:
+  // Will be called during truncate to allow the index to update selectivity
+  // estimates, blacklist keys, etc.
+  virtual Result postprocessRemove(transaction::Methods* trx,
+                                   rocksdb::Slice const& key, rocksdb::Slice const& value);
+
+  inline bool useCache() const { return (_useCache && _cachePresent); }
+  void blackListKey(char const* data, std::size_t len);
+  void blackListKey(StringRef& ref){
+    blackListKey(ref.data(), ref.size());
+  };
+
+  RocksDBKeyBounds getBounds() const;
 
  protected:
   uint64_t _objectId;
-  RocksDBComparator* _cmp;
+  rocksdb::Comparator* _cmp;
 
-  cache::Manager* _cacheManager;
-  std::shared_ptr<cache::Cache> _cache;
+  mutable std::shared_ptr<cache::Cache> _cache;
+  // we use this boolean for testing whether _cache is set.
+  // it's quicker than accessing the shared_ptr each time
+  bool _cachePresent;
   bool _useCache;
 };
-}
+}  // namespace arangodb
 
 #endif

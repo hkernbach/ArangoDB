@@ -30,11 +30,14 @@
 #include "Agency/AgencyFeature.h"
 #include "ApplicationFeatures/ConfigFeature.h"
 #include "ApplicationFeatures/DaemonFeature.h"
+#include "ApplicationFeatures/EnvironmentFeature.h"
 #include "ApplicationFeatures/GreetingsFeature.h"
+#include "ApplicationFeatures/JemallocFeature.h"
 #include "ApplicationFeatures/LanguageFeature.h"
 #include "ApplicationFeatures/NonceFeature.h"
 #include "ApplicationFeatures/PageSizeFeature.h"
-#include "Pregel/PregelFeature.h"
+#include "ApplicationFeatures/RocksDBOptionFeature.h"
+#include "ApplicationFeatures/ShellColorsFeature.h"
 #include "ApplicationFeatures/PrivilegeFeature.h"
 #include "ApplicationFeatures/ShutdownFeature.h"
 #include "ApplicationFeatures/SupervisorFeature.h"
@@ -50,6 +53,7 @@
 #include "GeneralServer/GeneralServerFeature.h"
 #include "Logger/LoggerBufferFeature.h"
 #include "Logger/LoggerFeature.h"
+#include "Pregel/PregelFeature.h"
 #include "ProgramOptions/ProgramOptions.h"
 #include "Random/RandomFeature.h"
 #include "RestServer/AqlFeature.h"
@@ -79,7 +83,6 @@
 #include "Ssl/SslServerFeature.h"
 #include "Statistics/StatisticsFeature.h"
 #include "StorageEngine/EngineSelectorFeature.h"
-
 #include "V8Server/FoxxQueuesFeature.h"
 #include "V8Server/V8DealerFeature.h"
 
@@ -91,15 +94,18 @@
 #include "Enterprise/RestServer/arangodEE.h"
 #endif
 
-// storage engine
+// storage engines
 #include "MMFiles/MMFilesEngine.h"
 #include "RocksDBEngine/RocksDBEngine.h"
 
+#ifdef _WIN32
+#include <iostream>
+#endif
+
 using namespace arangodb;
 
-static int runServer(int argc, char** argv) {
+static int runServer(int argc, char** argv, ArangoGlobalContext &context) {
   try {
-    ArangoGlobalContext context(argc, argv, SBIN_DIRECTORY);
     context.installSegv();
     context.runStartupChecks();
 
@@ -115,8 +121,8 @@ static int runServer(int argc, char** argv) {
         "Action",        "Affinity",
         "Agency",        "Authentication",
         "Cluster",       "Daemon",
-        "Dispatcher",    "FoxxQueues",
-        "GeneralServer", "LoggerBufferFeature",
+        "FoxxQueues",    "GeneralServer", 
+        "Greetings",     "LoggerBufferFeature",
         "Server",        "SslServer",
         "Statistics",    "Supervisor"};
 
@@ -139,6 +145,7 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new DatabasePathFeature(&server));
     server.addFeature(new EndpointFeature(&server));
     server.addFeature(new EngineSelectorFeature(&server));
+    server.addFeature(new EnvironmentFeature(&server));
     server.addFeature(new FeatureCacheFeature(&server));
     server.addFeature(new FileDescriptorsFeature(&server));
     server.addFeature(new FoxxQueuesFeature(&server));
@@ -146,6 +153,7 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new GeneralServerFeature(&server));
     server.addFeature(new GreetingsFeature(&server));
     server.addFeature(new InitDatabaseFeature(&server, nonServerFeatures));
+    server.addFeature(new JemallocFeature(&server));
     server.addFeature(new LanguageFeature(&server));
     server.addFeature(new LockfileFeature(&server));
     server.addFeature(new LoggerBufferFeature(&server));
@@ -160,6 +168,7 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new ScriptFeature(&server, &ret));
     server.addFeature(new ServerFeature(&server, &ret));
     server.addFeature(new ServerIdFeature(&server));
+    server.addFeature(new ShellColorsFeature(&server));
     server.addFeature(new ShutdownFeature(&server, {"UnitTests", "Script"}));
     server.addFeature(new SslFeature(&server));
     server.addFeature(new StatisticsFeature(&server));
@@ -173,6 +182,7 @@ static int runServer(int argc, char** argv) {
     server.addFeature(new VersionFeature(&server));
     server.addFeature(new ViewTypesFeature(&server));
     server.addFeature(new WorkMonitorFeature(&server));
+    server.addFeature(new RocksDBOptionFeature(&server));
 
 #ifdef ARANGODB_HAVE_FORK
     server.addFeature(new DaemonFeature(&server));
@@ -211,7 +221,6 @@ static int runServer(int argc, char** argv) {
       ret = EXIT_FAILURE;
     }
     Logger::flush();
-
     return context.exit(ret);
   } catch (std::exception const& ex) {
     LOG_TOPIC(ERR, arangodb::Logger::FIXME)
@@ -240,7 +249,8 @@ static void WINAPI ServiceMain(DWORD dwArgc, LPSTR* lpszArgv) {
   // set start pending
   SetServiceStatus(SERVICE_START_PENDING, 0, 1, 10000);
 
-  runServer(ARGC, ARGV);
+  ArangoGlobalContext context(ARGC, ARGV, SBIN_DIRECTORY);
+  runServer(ARGC, ARGV, context);
 
   // service has stopped
   SetServiceStatus(SERVICE_STOPPED, NO_ERROR, 0, 0);
@@ -260,10 +270,12 @@ int main(int argc, char* argv[]) {
 
     if (!StartServiceCtrlDispatcher(ste)) {
       std::cerr << "FATAL: StartServiceCtrlDispatcher has failed with "
-        << GetLastError() << std::endl;
+                << GetLastError() << std::endl;
       exit(EXIT_FAILURE);
     }
-  } else
+    return 0;
+  }
 #endif
-    return runServer(argc, argv);
+  ArangoGlobalContext context(argc, argv, SBIN_DIRECTORY);
+  return runServer(argc, argv, context);
 }

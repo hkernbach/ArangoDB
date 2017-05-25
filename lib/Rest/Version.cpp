@@ -41,6 +41,7 @@
 #include "Basics/build-repository.h"
 #include "Basics/conversions.h"
 
+#include <rocksdb/convenience.h>
 #include <rocksdb/version.h>
 
 using namespace arangodb::rest;
@@ -134,7 +135,7 @@ void Version::initialize() {
   Values["assertions"] = "false";
 #endif
 
-  Values["rocksdb-version"] = std::to_string(ROCKSDB_MAJOR) + "." + std::to_string(ROCKSDB_MINOR) + "." + std::to_string(ROCKSDB_PATCH);
+  Values["rocksdb-version"] = getRocksDBVersion();
 
 #ifdef __cplusplus
   Values["cplusplus"] = std::to_string(__cplusplus);
@@ -164,12 +165,6 @@ void Version::initialize() {
   Values["failure-tests"] = "true";
 #else
   Values["failure-tests"] = "false";
-#endif
-
-#ifdef ARANGODB_HAVE_TCMALLOC
-  Values["tcmalloc"] = "true";
-#else
-  Values["tcmalloc"] = "false";
 #endif
 
 #ifdef ARANGODB_HAVE_JEMALLOC
@@ -240,6 +235,11 @@ std::string Version::getBoostReactorType() {
 #else
   return std::string("select");
 #endif
+}
+  
+/// @brief get RocksDB version
+std::string Version::getRocksDBVersion() {
+  return std::to_string(ROCKSDB_MAJOR) + "." + std::to_string(ROCKSDB_MINOR) + "." + std::to_string(ROCKSDB_PATCH);
 }
 
 /// @brief get V8 version
@@ -347,13 +347,11 @@ std::string Version::getVerboseVersionString() {
           << " with ASAN"
 #endif
           << ", using "
-#ifdef TRI_HAVE_TCMALLOC
-          << "tcmalloc, "
-#endif
-#ifdef TRI_HAVE_JEMALLOC
+#ifdef ARANGODB_HAVE_JEMALLOC
           << "jemalloc, "
 #endif
           << "VPack " << getVPackVersion() << ", "
+          << "RocksDB " << getRocksDBVersion() << ", "
           << "ICU " << getICUVersion() << ", "
           << "V8 " << getV8Version() << ", " << getOpenSSLVersion();
 
@@ -364,7 +362,7 @@ std::string Version::getVerboseVersionString() {
 std::string Version::getDetailed() {
   std::string result;
 
-  for (auto& it : Values) {
+  for (auto const& it : Values) {
     std::string const& value = it.second;
 
     if (!value.empty()) {

@@ -31,6 +31,8 @@ if (NOT (CMAKE_BUILD_TYPE STREQUAL "Debug"
   message(FATAL_ERROR "expecting CMAKE_BUILD_TYPE: None Debug Release RelWithDebInfo MinSizeRel, got ${CMAKE_BUILD_TYPE}.")
 endif ()
 
+string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE_UPPER)
+
 if (NOT CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "10.11" CACHE STRING "deployment target for MacOSX; adjust to your sysem")
 endif ()
@@ -67,7 +69,6 @@ if (DEBUG_SYNC_REPLICATION)
   add_definitions("-DDEBUG_SYNC_REPLICATION=1")
 endif ()
 
-
 # ------------------------------------------------------------------------------
 # VERSION information
 # ------------------------------------------------------------------------------
@@ -76,6 +77,13 @@ set(ARANGODB_VERSION_MAJOR      "3")
 set(ARANGODB_VERSION_MINOR      "2")
 set(ARANGODB_VERSION_REVISION   "devel")
 set(ARANGODB_PACKAGE_REVISION   "1")
+
+# version for the windows rc file needs to be numeric:
+if (ARANGODB_VERSION_REVISION GREATER -1)
+  set(ARANGODB_NUMERIC_VERSION_REVISION "${ARANGODB_VERSION_REVISION}")
+else()
+  set(ARANGODB_NUMERIC_VERSION_REVISION 1337)
+endif()
 
 set(ARANGODB_VERSION
     "${ARANGODB_VERSION_MAJOR}.${ARANGODB_VERSION_MINOR}.${ARANGODB_VERSION_REVISION}")
@@ -87,13 +95,13 @@ set(ARANGODB_DISPLAY_NAME    "ArangoDB")
 set(ARANGODB_URL_INFO_ABOUT  "https://www.arangodb.com")
 set(ARANGODB_HELP_LINK       "https://docs.arangodb.com/${ARANGODB_VERSION_MAJOR}.${ARANGODB_VERSION_MINOR}/")
 set(ARANGODB_CONTACT         "hackers@arangodb.com")
-set(ARANGODB_FRIENDLY_STRING "ArangoDB - the multi-model database")
+set(ARANGODB_FRIENDLY_STRING "ArangoDB - the native multi-model NoSQL database")
 
 # MSVC
 set(ARANGO_BENCH_FRIENDLY_STRING   "arangobench - stress test program")
 set(ARANGO_DUMP_FRIENDLY_STRING    "arangodump - export")
 set(ARANGO_RESTORE_FRIENDLY_STRING "arangrestore - importer")
-set(ARANGO_EXPORT_FRIENDLY_STRING     "arangoexport - datae xporter")
+set(ARANGO_EXPORT_FRIENDLY_STRING  "arangoexport - datae xporter")
 set(ARANGO_IMP_FRIENDLY_STRING     "arangoimp - TSV/CSV/JSON importer")
 set(ARANGOSH_FRIENDLY_STRING       "arangosh - commandline client")
 set(ARANGO_VPACK_FRIENDLY_STRING   "arangovpack - vpack printer")
@@ -235,17 +243,29 @@ elseif (APPLE)
   if (CMAKE_SYSTEM_NAME MATCHES ".*Darwin.*")
     set(DARWIN TRUE)
   elseif (CMAKE_SYSTEM_NAME MATCHES ".*MacOS.*")
-    set(MACOSX TRUE)
+    set(DARWIN TRUE)
   endif ()
   find_program(BREW brew)
 endif ()
 
-################################################################################
-## ROCKSDB
-################################################################################
+# ------------------------------------------------------------------------------
+# user options
+# ------------------------------------------------------------------------------
 
-add_definitions(-DARANGODB_ROCKSDB_VERSION=\"${ROCKSDB_VERSION}\")
-include_directories(${ROCKSDB_INCLUDE_DIR})
+if (WINDOWS)
+  SET(USE_JEMALLOC OFF)
+else ()
+  option(
+    USE_JEMALLOC
+    "use jemalloc memory allocator"
+    ON
+  )
+endif ()
+
+if (CROSS_COMPILING)
+# curently off, need additional params to configure like --hoast=triple <params>
+  SET(USE_JEMALLOC OFF)
+endif()
 
 ################################################################################
 ## EXTERNAL PROGRAMS
@@ -332,8 +352,8 @@ if (CMAKE_COMPILER_IS_CLANG)
 endif ()
 
 # need c++11
+# XXX this should really be set on a per target level using cmake compile_features capabilties
 set(CMAKE_CXX_STANDARD 11)
-include(CheckCXX11Features)
 
 # need threads
 find_package(Threads REQUIRED)
@@ -406,6 +426,7 @@ endif ()
 ## TARGET ARCHITECTURE
 ################################################################################
 
+set(ARANGODB_SSE42_FLAGS "")
 if (WINDOWS)
   add_definitions("-DNO_SSE42")
 else ()
@@ -433,8 +454,13 @@ else ()
     OptimizeForArchitecture()
   endif ()
 
+  if (USE_SSE4_2)
+    set(ARANGODB_SSE42_FLAGS "-msse4.2")
+  endif ()
+
   set(BASE_FLAGS "${Vc_COMPILE_FLAGS} ${BASE_FLAGS}")
 endif ()
+
 
 ################################################################################
 ## BACKTRACE
@@ -528,80 +554,66 @@ if (NOT WINDOWS)
   endif ()
 endif ()
 
-################################################################################
-## JEMALLOC
-################################################################################
-if (WINDOWS OR SOLARIS OR USE_TCMALLOC)
-  set(JEMALLOC_DEFAULT_VALUE OFF)
-endif ()
-option(USE_JEMALLOC
-  "use JEMALLOC if the library is available"
-  ${JEMALLOC_DEFAULT_VALUE}
-)
+# ------------------------------------------------------------------------------
+# IMPLICIT INCLUDES AND LIBIRARY DIRECTORIES
+# ------------------------------------------------------------------------------
 
-# try to detect a static libjemalloc.a:
-set(_DEFAULT_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
-set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_STATIC_LIBRARY_SUFFIX})
-find_package(jemalloc)
-set(CMAKE_FIND_LIBRARY_SUFFIXES ${_DEFAULT_LIBRARY_SUFFIXES})
+function(CREATE_FLAGS OUTPUT GLUE)
+  set(_TMP_RESULT "")
 
+  foreach(arg ${ARGN})
+    set(_TMP_RESULT "${_TMP_RESULT} ${GLUE}${arg}")
+  endforeach()
 
-# check whether we can use the static jemalloc on the system (if):
-if (JEMALLOC_FOUND)
-  set(HAS_PROPER_STATIC_JEMALLOC TRUE)
-  set(SOURCE "#include <stdlib.h>
-#include <jemalloc/jemalloc.h>
-int main() {
-malloc_stats_print(NULL, NULL, NULL);
-return 0; }"
-    )
-  set(TSTSRC "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/jemalloc.cxx")
-  file(WRITE ${TSTSRC} "${SOURCE}\n")
+  set(${OUTPUT} "${_TMP_RESULT}" PARENT_SCOPE)
+endfunction()
 
-  try_compile(HAS_PROPER_STATIC_JEMALLOC
-    ${CMAKE_BINARY_DIR}
-    ${TSTSRC}
-    LINK_LIBRARIES "jemalloc.a" "pthread" ${SYS_LIBS} ${CMAKE_DL_LIBS}
-    )
-  if (USE_JEMALLOC AND NOT HAS_PROPER_STATIC_JEMALLOC)
-    message(FATAL_ERROR "the static system jemalloc isn't suitable! Recompile with the current compiler or disable using `-DCMAKE_CXX_FLAGS=-no-pie -DCMAKE_C_FLAGS=-no-pie`")
-  elseif (NOT USE_JEMALLOC AND NOT HAS_PROPER_STATIC_JEMALLOC)
-    # the user didn't force the use, so if its broken, ignore its existance:
-    set(JEMALLOC_FOUND FALSE)
-  endif ()
-endif()
+# CREATE_FLAGS(IMPLICIT_C_INCLUDES "${CMAKE_C_SYSROOT_FLAG} " ${CMAKE_OSX_SYSROOT})
+# CREATE_FLAGS(IMPLICIT_CXX_INCLUDES "${CMAKE_CXX_SYSROOT_FLAG} " ${CMAKE_OSX_SYSROOT})
 
-if (USE_JEMALLOC AND NOT JEMALLOC_FOUND)
-  message(FATAL_ERROR "jemalloc build was requested but jemalloc not found")
-elseif (USE_JEMALLOC AND JEMALLOC_FOUND)
+# ------------------------------------------------------------------------------
+# JEMALLOC
+# ------------------------------------------------------------------------------
+
+if (USE_JEMALLOC)
+  add_subdirectory(3rdParty/jemalloc)
   add_definitions("-DARANGODB_HAVE_JEMALLOC=1")
-  set(SYS_LIBS ${SYS_LIBS} ${JEMALLOC_jemalloc_LIBRARY})
-endif ()
 
-################################################################################
-## TCMALLOC
-################################################################################
+  include_directories("${JEMALLOC_HOME}/include")
+  link_directories("${JEMALLOC_HOME}/lib")
 
-option(USE_TCMALLOC
-  "use TCMALLOC if the library is available"
-  OFF
-)
+  set(SYS_LIBS ${SYS_LIBS} jemalloc.a)
 
-if (USE_TCMALLOC)
-  find_package(tcmalloc)
-
-  if (TCMALLOC_FOUND)
-    add_definitions("-DARANGODB_HAVE_TCMALLOC=1")
-    set(SYS_LIBS ${SYS_LIBS} ${TCMALLOC_tcmalloc_LIBRARY})
-    message(STATUS "Found TCMALLOC")
-  else ()
-    message(STATUS "Missing TCMALLOC")
+  if (LINUX OR DARWIN)
+    add_definitions("-DARANGODB_MMAP_JEMALLOC=1")
   endif ()
 endif ()
 
-if (${USE_JEMALLOC} AND ${USE_TCMALLOC})
-  MESSAGE(FATAL_ERROR " you mustn't demand for tcmalloc and jemalloc at the same time!")
-endif()
+# ------------------------------------------------------------------------------
+# RocksDB
+# ------------------------------------------------------------------------------
+
+#NDEBUG
+if ( NOT USE_MAINTAINER_MODE AND ( CMAKE_BUILD_TYPE STREQUAL "Release" OR
+                                   CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR
+                                   CMAKE_BUILD_TYPE STREQUAL "MinSizeRel"
+                                 )
+   )
+   add_definitions(-DNDEBUG)
+endif ()
+
+
+
+add_subdirectory(3rdParty/rocksdb)
+ 
+add_definitions(-DARANGODB_ROCKSDB_VERSION=\"${ROCKSDB_VERSION}\")
+include_directories(${ROCKSDB_INCLUDE_DIR})
+ 
+set(ROCKSDB_LIBS rocksdblib;snappystatic)
+
+if (USE_JEMALLOC)
+  add_dependencies(rocksdblib jemalloc)
+endif ()
 
 ################################################################################
 ## FLAGS
@@ -610,6 +622,7 @@ endif()
 if (VERBOSE)
   message(STATUS)
 endif ()
+
 
 # compiler options
 if (CMAKE_COMPILER_IS_GNUCC)
@@ -657,15 +670,15 @@ elseif (MSVC)
 
   set(CMAKE_C_FLAGS                "/MTd"                              CACHE INTERNAL "default C++ compiler flags")
   set(CMAKE_C_FLAGS_DEBUG          "/D _DEBUG /MTd /Zi /Ob0 /Od /RTC1" CACHE INTERNAL "C++ debug flags")
-  set(CMAKE_C_FLAGS_MINSIZEREL     "/MT /O1 /Ob1 /D NDEBUG"            CACHE INTERNAL "C++ minimal size flags")
-  set(CMAKE_C_FLAGS_RELEASE        "/MT /O2 /Ob2 /D NDEBUG"            CACHE INTERNAL "C++ release flags")
-  set(CMAKE_C_FLAGS_RELWITHDEBINFO "/MT /Zi /O2 /Ob1 /D NDEBUG"        CACHE INTERNAL "C++ release with debug info flags")
+  set(CMAKE_C_FLAGS_MINSIZEREL     "/MT /O1 /Ob1"                      CACHE INTERNAL "C++ minimal size flags")
+  set(CMAKE_C_FLAGS_RELEASE        "/MT /O2 /Ob2"                      CACHE INTERNAL "C++ release flags")
+  set(CMAKE_C_FLAGS_RELWITHDEBINFO "/MT /Zi /O2 /Ob1"                  CACHE INTERNAL "C++ release with debug info flags")
 
   set(CMAKE_CXX_FLAGS                "/MTd"                              CACHE INTERNAL "default C++ compiler flags")
   set(CMAKE_CXX_FLAGS_DEBUG          "/D _DEBUG /MTd /Zi /Ob0 /Od /RTC1" CACHE INTERNAL "C++ debug flags")
-  set(CMAKE_CXX_FLAGS_MINSIZEREL     "/MT /O1 /Ob1 /D NDEBUG"            CACHE INTERNAL "C++ minimal size flags")
-  set(CMAKE_CXX_FLAGS_RELEASE        "/MT /O2 /Ob2 /D NDEBUG"            CACHE INTERNAL "C++ release flags")
-  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/MT /Zi /O2 /Ob1 /D NDEBUG"        CACHE INTERNAL "C++ release with debug info flags")
+  set(CMAKE_CXX_FLAGS_MINSIZEREL     "/MT /O1 /Ob1"                      CACHE INTERNAL "C++ minimal size flags")
+  set(CMAKE_CXX_FLAGS_RELEASE        "/MT /O2 /Ob2"                      CACHE INTERNAL "C++ release flags")
+  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/MT /Zi /O2 /Ob1"                  CACHE INTERNAL "C++ release with debug info flags")
 
 else ()
   # unknown compiler
@@ -686,11 +699,11 @@ else ()
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -fno-omit-frame-pointer" CACHE INTERNAL "C++ release with debug info flags")
 endif ()
 
-set(CMAKE_C_FLAGS                "${CMAKE_C_FLAGS}                ${BASE_FLAGS} ${BASE_C_FLAGS}")
-set(CMAKE_C_FLAGS_DEBUG          "${CMAKE_C_FLAGS_DEBUG}          ${BASE_FLAGS} ${BASE_C_FLAGS}")
-set(CMAKE_C_FLAGS_RELEASE        "${CMAKE_C_FLAGS_RELEASE}        ${BASE_FLAGS} ${BASE_C_FLAGS}")
-set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} ${BASE_FLAGS} ${BASE_C_FLAGS}")
-set(CMAKE_C_FLAGS_MINSIZEREL     "${CMAKE_C_FLAGS_MINSIZEREL}     ${BASE_FLAGS} ${BASE_C_FLAGS}")
+set(CMAKE_C_FLAGS                "${CMAKE_C_FLAGS}                    ${BASE_FLAGS} ${BASE_C_FLAGS}")
+set(CMAKE_C_FLAGS_DEBUG          "${CMAKE_C_FLAGS_DEBUG}              ${BASE_FLAGS} ${BASE_C_FLAGS}")
+set(CMAKE_C_FLAGS_RELEASE        "${CMAKE_C_FLAGS_RELEASE}            ${BASE_FLAGS} ${BASE_C_FLAGS}")
+set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}     ${BASE_FLAGS} ${BASE_C_FLAGS}")
+set(CMAKE_C_FLAGS_MINSIZEREL     "${CMAKE_C_FLAGS_MINSIZEREL}         ${BASE_FLAGS} ${BASE_C_FLAGS}")
 
 set(CMAKE_CXX_FLAGS                "${CMAKE_CXX_FLAGS}                ${BASE_FLAGS} ${BASE_CXX_FLAGS}")
 set(CMAKE_CXX_FLAGS_DEBUG          "${CMAKE_CXX_FLAGS_DEBUG}          ${BASE_FLAGS} ${BASE_CXX_FLAGS}")
@@ -709,32 +722,22 @@ if (VERBOSE)
   if (CMAKE_BUILD_TYPE STREQUAL "None")
     message(STATUS "Info CMAKE_C_FLAGS:   ${CMAKE_C_FLAGS}")
     message(STATUS "Info CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
-  endif ()
-
-  if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    message(STATUS "Info CMAKE_C_FLAGS_DEBUG:   ${CMAKE_C_FLAGS_DEBUG}")
-    message(STATUS "Info CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
-  endif ()
-
-  if (CMAKE_BUILD_TYPE STREQUAL "Release")
-    message(STATUS "Info CMAKE_C_FLAGS_RELEASE:   ${CMAKE_C_FLAGS_RELEASE}")
-    message(STATUS "Info CMAKE_CXX_FLAGS_RELEASE: ${CMAKE_CXX_FLAGS_RELEASE}")
-  endif ()
-
-  if (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    message(STATUS "Info CMAKE_C_FLAGS_RELWITHDEBINFO:   ${CMAKE_C_FLAGS_RELWITHDEBINFO}")
-    message(STATUS "Info CMAKE_CXX_FLAGS_RELWITHDEBINFO: ${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
-  endif ()
-
-  if (CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
-    message(STATUS "Info CMAKE_C_FLAGS_MINSIZEREL:   ${CMAKE_C_FLAGS_MINSIZEREL}")
-    message(STATUS "Info CMAKE_CXX_FLAGS_MINSIZEREL: ${CMAKE_CXX_FLAGS_MINSIZEREL}")
+  else ()
+    message(STATUS "Info CMAKE_C_FLAGS_${CMAKE_BUILD_TYPE_UPPER}:   ${CMAKE_C_FLAGS_${CMAKE_BUILD_TYPE_UPPER}}")
+    message(STATUS "Info CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE_UPPER}: ${CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE_UPPER}}")
   endif ()
 
   message(STATUS "Info CMAKE_EXE_LINKER_FLAGS: ${CMAKE_EXE_LINKER_FLAGS}")
   message(STATUS)
 endif ()
 
+if(ARANGODB_DEBUG_CMAKE)
+  get_directory_property( DirDefs DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} COMPILE_DEFINITIONS )
+  foreach( d ${DirDefs} )
+    message( STATUS "Found Define: " ${d} )
+  endforeach()
+  message( STATUS "DirDefs: ${DirDefs}" )
+endif()
 
 ################################################################################
 ## 3RD PARTY
@@ -959,6 +962,7 @@ endif ()
 # steps generating an AST. This AST can in turn be used
 # for meaningful auto-completion in editors without
 # heuristics, dice rolling and other guessing.
+
 if( EXISTS "${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json" )
   message(STATUS "copy compile_commands.json")
 
@@ -986,3 +990,10 @@ add_custom_target(clean_autogenerated_files
 
 message(STATUS "building for git revision: ${ARANGODB_BUILD_REPOSITORY}")
 
+# if (VERBOSE)
+#   get_cmake_property(_variableNames VARIABLES)
+# 
+#   foreach (_variableName ${_variableNames})
+#     message(STATUS "${_variableName}=${${_variableName}}")
+#   endforeach ()
+# endif ()

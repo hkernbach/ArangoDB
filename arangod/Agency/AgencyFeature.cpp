@@ -24,7 +24,9 @@
 #include "AgencyFeature.h"
 
 #include "Agency/Agent.h"
-#include "Cluster/ServerState.h"
+#include "Agency/Job.h"
+#include "Agency/Supervision.h"
+#include "Cluster/ClusterFeature.h"
 #include "Logger/Logger.h"
 #include "ProgramOptions/ProgramOptions.h"
 #include "ProgramOptions/Section.h"
@@ -45,10 +47,10 @@ AgencyFeature::AgencyFeature(application_features::ApplicationServer* server)
       _maxElectionTimeout(5.0),
       _supervision(false),
       _waitForSync(true),
-      _supervisionFrequency(5.0),
+      _supervisionFrequency(1.0),
       _compactionStepSize(200000),
       _compactionKeepSize(500),
-      _supervisionGracePeriod(15.0),
+      _supervisionGracePeriod(10.0),
       _cmdLineTimings(false)
 {
   setOptional(true);
@@ -60,7 +62,7 @@ AgencyFeature::AgencyFeature(application_features::ApplicationServer* server)
   startsAfter("MMFilesWalRecovery");
   startsAfter("Scheduler");
   startsAfter("Server");
-  startsAfter("Aql");
+  startsAfter("Cluster");
 }
 
 AgencyFeature::~AgencyFeature() {}
@@ -207,6 +209,15 @@ void AgencyFeature::start() {
     return;
   }
 
+  // Find the agency prefix:
+  auto feature = ApplicationServer::getFeature<ClusterFeature>("Cluster");
+  if (!feature->agencyPrefix().empty()) {
+    arangodb::consensus::Supervision::setAgencyPrefix(
+      std::string("/") + feature->agencyPrefix());
+    arangodb::consensus::Job::agencyPrefix
+      = std::string("/") + feature->agencyPrefix();
+  }
+  
   // TODO: Port this to new options handling
   std::string endpoint;
 
@@ -234,7 +245,7 @@ void AgencyFeature::start() {
 
   _agent.reset(new consensus::Agent(consensus::config_t(
       _size, _poolSize, _minElectionTimeout, _maxElectionTimeout, endpoint,
-      _agencyEndpoints, _supervision, false, _supervisionFrequency,
+      _agencyEndpoints, _supervision, _waitForSync, _supervisionFrequency,
       _compactionStepSize, _compactionKeepSize, _supervisionGracePeriod,
       _cmdLineTimings)));
 
@@ -258,6 +269,17 @@ void AgencyFeature::stop() {
   if (!isEnabled()) {
     return;
   }
+
+  if (_agent->inception() != nullptr) {
+    int counter = 0;
+    while (_agent->inception()->isRunning()) {
+      usleep(100000);
+      // emit warning after 5 seconds
+      if (++counter == 10 * 5) {
+        LOG_TOPIC(WARN, Logger::AGENCY) << "waiting for inception thread to finish";
+      }
+    }
+  }  
 
   if (_agent != nullptr) {
     int counter = 0;

@@ -24,10 +24,12 @@
 #include "v8-query.h"
 #include "Aql/Query.h"
 #include "Aql/QueryResultV8.h"
+#include "Aql/QueryString.h"
 #include "Basics/StaticStrings.h"
 #include "Basics/VelocyPackHelper.h"
 #include "Basics/fasthash.h"
 #include "Indexes/Index.h"
+#include "StorageEngine/PhysicalCollection.h"
 #include "Transaction/Helpers.h"
 #include "Utils/OperationCursor.h"
 #include "Utils/SingleCollectionTransaction.h"
@@ -39,7 +41,6 @@
 #include "V8Server/v8-vocbase.h"
 #include "V8Server/v8-vocindex.h"
 #include "VocBase/LogicalCollection.h"
-#include "VocBase/PhysicalCollection.h"
 #include "VocBase/ManagedDocumentResult.h"
 #include "VocBase/vocbase.h"
 
@@ -61,7 +62,7 @@ aql::QueryResultV8 AqlQuery(
   TRI_ASSERT(col != nullptr);
 
   TRI_GET_GLOBALS();
-  arangodb::aql::Query query(true, col->vocbase(), aql.c_str(), aql.size(),
+  arangodb::aql::Query query(true, col->vocbase(), arangodb::aql::QueryString(aql),
                              bindVars, nullptr, arangodb::aql::PART_MAIN);
 
   auto queryResult = query.executeV8(
@@ -255,7 +256,7 @@ static void JS_AllQuery(v8::FunctionCallbackInfo<v8::Value> const& args) {
   VPackBuilder resultBuilder;
   resultBuilder.openArray();
   
-  opCursor->getAll([&resultBuilder, &mmdr, &trx, &collection](DocumentIdentifierToken const& tkn) {
+  opCursor->all([&resultBuilder, &mmdr, &trx, &collection](DocumentIdentifierToken const& tkn) {
    if (collection->readDocument(&trx, tkn, mmdr)) {
       resultBuilder.add(VPackSlice(mmdr.vpack()));
     }
@@ -392,40 +393,41 @@ static void JS_ChecksumCollection(
         
   ManagedDocumentResult mmdr;
   trx.invokeOnAllElements(col->name(), [&hash, &withData, &withRevisions, &trx, &collection, &mmdr](DocumentIdentifierToken const& token) {
-    collection->readDocument(&trx, token, mmdr);
-    VPackSlice const slice(mmdr.vpack());
+      if (collection->readDocument(&trx, token, mmdr)) {
+      VPackSlice const slice(mmdr.vpack());
 
-    uint64_t localHash = transaction::helpers::extractKeyFromDocument(slice).hashString(); 
+      uint64_t localHash = transaction::helpers::extractKeyFromDocument(slice).hashString(); 
 
-    if (withRevisions) {
+      if (withRevisions) {
       localHash += transaction::helpers::extractRevSliceFromDocument(slice).hash();
-    }
+      }
 
-    if (withData) {
+      if (withData) {
       // with data
       uint64_t const n = slice.length() ^ 0xf00ba44ba5;
       uint64_t seed = fasthash64_uint64(n, 0xdeadf054);
 
       for (auto const& it : VPackObjectIterator(slice, false)) {
-        // loop over all attributes, but exclude _rev, _id and _key
-        // _id is different for each collection anyway, _rev is covered by withRevisions, and _key
-        // was already handled before
-        VPackValueLength keyLength;
-        char const* key = it.key.getString(keyLength);
-        if (keyLength >= 3 && 
-            key[0] == '_' &&
-            ((keyLength == 3 && memcmp(key, "_id", 3) == 0) ||
-             (keyLength == 4 && (memcmp(key, "_key", 4) == 0 || memcmp(key, "_rev", 4) == 0)))) {
-          // exclude attribute
-          continue;
-        }
-
-        localHash ^= it.key.hash(seed) ^ 0xba5befd00d; 
-        localHash += it.value.normalizedHash(seed) ^ 0xd4129f526421; 
+      // loop over all attributes, but exclude _rev, _id and _key
+      // _id is different for each collection anyway, _rev is covered by withRevisions, and _key
+      // was already handled before
+      VPackValueLength keyLength;
+      char const* key = it.key.getString(keyLength);
+      if (keyLength >= 3 && 
+          key[0] == '_' &&
+          ((keyLength == 3 && memcmp(key, "_id", 3) == 0) ||
+           (keyLength == 4 && (memcmp(key, "_key", 4) == 0 || memcmp(key, "_rev", 4) == 0)))) {
+        // exclude attribute
+        continue;
       }
-    }
-    
-    hash ^= localHash;
+
+      localHash ^= it.key.hash(seed) ^ 0xba5befd00d; 
+      localHash += it.value.normalizedHash(seed) ^ 0xd4129f526421; 
+      }
+      }
+
+      hash ^= localHash;
+      }
     return true;
   });
 

@@ -96,7 +96,11 @@ else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -momit-leaf-frame-pointer")
+  if (CROSS_COMPILING)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -momit-leaf-frame-pointer")
+  endif()
 endif()
 
 option(FAIL_ON_WARNINGS "Treat compile warnings as errors" ON)
@@ -352,6 +356,7 @@ set(SOURCES
         util/comparator.cc
         util/concurrent_arena.cc
         util/crc32c.cc
+        util/crc32sse42.cc
         util/db_options.cc
         util/delete_scheduler.cc
         util/dynamic_bloom.cc
@@ -445,6 +450,8 @@ set(SOURCES
         utilities/col_buf_decoder.cc
         utilities/column_aware_encoding_util.cc
         $<TARGET_OBJECTS:build_version>)
+
+set_source_files_properties(util/crc32sse42.cc PROPERTIES COMPILE_FLAGS "${ARANGODB_SSE42_FLAGS}") 
 
 if(WIN32)
   list(APPEND SOURCES

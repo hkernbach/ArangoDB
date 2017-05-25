@@ -65,6 +65,7 @@ RestoreFeature::RestoreFeature(application_features::ApplicationServer* server,
       _overwrite(true),
       _recycleIds(false),
       _force(false),
+      _ignoreDistributeShardsLikeErrors(false),
       _clusterMode(false),
       _defaultNumberOfShards(1),
       _defaultReplicationFactor(1),
@@ -125,8 +126,13 @@ void RestoreFeature::collectOptions(
                      new UInt64Parameter(&_defaultReplicationFactor));
 
   options->addOption(
-      "--force", "continue restore even in the face of some server-side errors",
-      new BooleanParameter(&_force));
+      "--ignore-distribute-shards-like-errors",
+      "continue restore even if sharding prototype collection is missing",
+      new BooleanParameter(&_ignoreDistributeShardsLikeErrors));
+
+  options->addOption(
+    "--force", "continue restore even in the face of some server-side errors",
+    new BooleanParameter(&_force));
 }
 
 void RestoreFeature::validateOptions(
@@ -222,11 +228,13 @@ int RestoreFeature::sendRestoreCollection(VPackSlice const& slice,
                                           std::string const& name,
                                           std::string& errorMsg) {
   std::string url =
-      "/_api/replication/restore-collection"
-      "?overwrite=" +
-      std::string(_overwrite ? "true" : "false") + "&recycleIds=" +
-      std::string(_recycleIds ? "true" : "false") + "&force=" +
-      std::string(_force ? "true" : "false");
+    "/_api/replication/restore-collection"
+    "?overwrite=" +
+    std::string(_overwrite ? "true" : "false") + "&recycleIds=" +
+    std::string(_recycleIds ? "true" : "false") + "&force=" +
+    std::string(_force ? "true" : "false") +
+    "&ignoreDistributeShardsLikeErrors=" +
+    std::string(_ignoreDistributeShardsLikeErrors ? "true":"false");
 
   if (_clusterMode) {
     if (!slice.hasKey(std::vector<std::string>({"parameters", "shards"})) &&
@@ -670,9 +678,9 @@ void RestoreFeature::start() {
 
   std::string dbName = client->databaseName();
 
-  _httpClient->setLocationRewriter(static_cast<void*>(client),
+  _httpClient->params().setLocationRewriter(static_cast<void*>(client),
                                    &rewriteLocation);
-  _httpClient->setUserNamePassword("/", client->username(), client->password());
+  _httpClient->params().setUserNamePassword("/", client->username(), client->password());
 
   int err = TRI_ERROR_NO_ERROR;
   std::string versionString = _httpClient->getServerVersion(&err);

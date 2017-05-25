@@ -1543,7 +1543,7 @@ int fetchEdgesFromEngines(
     filtered += arangodb::basics::VelocyPackHelper::getNumericValue<size_t>(
         resSlice, "filtered", 0);
     read += arangodb::basics::VelocyPackHelper::getNumericValue<size_t>(
-        resSlice, "read", 0);
+        resSlice, "readIndex", 0);
     VPackSlice edges = resSlice.get("edges");
     for (auto const& e : VPackArrayIterator(edges)) {
       VPackSlice id = e.get(StaticStrings::IdString);
@@ -1661,6 +1661,101 @@ void fetchVerticesFromEngines(
                .steal());
   }
   vertexIds.clear();
+}
+
+/// @brief fetch vertices from TraverserEngines
+///        Contacts all TraverserEngines placed
+///        on the DBServers for the given list
+///        of vertex _id's.
+///        If any server responds with a document
+///        it will be inserted into the result.
+///        If no server responds with a document
+///        a 'null' will be inserted into the result.
+///        ShortestPathVariant
+
+void fetchVerticesFromEngines(
+    std::string const& dbname,
+    std::unordered_map<ServerID, traverser::TraverserEngineID> const* engines,
+    std::unordered_set<StringRef>& vertexIds,
+    std::unordered_map<StringRef, arangodb::velocypack::Slice>& result,
+    std::vector<std::shared_ptr<arangodb::velocypack::Builder>>& datalake,
+    VPackBuilder& builder) {
+  auto cc = ClusterComm::instance();
+  if (cc == nullptr) {
+    // nullptr happens only during controlled shutdown
+    return;
+  }
+  // TODO map id => ServerID if possible
+  // And go fast-path
+
+  // slow path, sharding not deducable from _id
+  builder.clear();
+  builder.openObject();
+  builder.add(VPackValue("keys"));
+  builder.openArray();
+  for (auto const& v : vertexIds) {
+    //TRI_ASSERT(v.isString());
+    builder.add(VPackValuePair(v.data(), v.length(), VPackValueType::String));
+  }
+  builder.close(); // 'keys' Array
+  builder.close(); // base object
+
+  std::string const url =
+      "/_db/" + StringUtils::urlEncode(dbname) + "/_internal/traverser/vertex/";
+
+  std::vector<ClusterCommRequest> requests;
+  auto body = std::make_shared<std::string>(builder.toJson());
+  for (auto const& engine : *engines) {
+    requests.emplace_back("server:" + engine.first, RequestType::PUT,
+                          url + StringUtils::itoa(engine.second), body);
+  }
+
+  // Perform the requests
+  size_t nrDone = 0;
+  cc->performRequests(requests, CL_DEFAULT_TIMEOUT, nrDone, Logger::COMMUNICATION);
+
+  // Now listen to the results:
+  for (auto const& req : requests) {
+    auto res = req.result;
+    int commError = handleGeneralCommErrors(&res);
+    if (commError != TRI_ERROR_NO_ERROR) {
+      // oh-oh cluster is in a bad state
+      THROW_ARANGO_EXCEPTION(commError);
+    }
+    TRI_ASSERT(res.answer != nullptr);
+    auto resBody = res.answer->toVelocyPackBuilderPtr();
+    VPackSlice resSlice = resBody->slice();
+    if (!resSlice.isObject()) {
+      // Response has invalid format
+      THROW_ARANGO_EXCEPTION(TRI_ERROR_HTTP_CORRUPTED_JSON);
+    }
+    if (res.answer_code != ResponseCode::OK) {
+      int code = arangodb::basics::VelocyPackHelper::getNumericValue<int>(
+          resSlice, "errorNum", TRI_ERROR_INTERNAL);
+      // We have an error case here. Throw it.
+      THROW_ARANGO_EXCEPTION_MESSAGE(
+          code, arangodb::basics::VelocyPackHelper::getStringValue(
+                    resSlice, "errorMessage", TRI_errno_string(code)));
+    }
+    bool cached = false;
+
+    for (auto const& pair : VPackObjectIterator(resSlice)) {
+      StringRef key(pair.key);
+      if (vertexIds.erase(key) == 0) {
+        // We either found the same vertex twice,
+        // or found a vertex we did not request.
+        // Anyways something somewhere went seriously wrong
+        THROW_ARANGO_EXCEPTION(TRI_ERROR_CLUSTER_GOT_CONTRADICTING_ANSWERS);
+      }
+      TRI_ASSERT(result.find(key) == result.end());
+      if (!cached) {
+        datalake.emplace_back(resBody);
+        cached = true;
+      }
+      // Protected by datalake
+      result.emplace(key, pair.value);
+    }
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2156,7 +2251,7 @@ std::unordered_map<std::string, std::vector<std::string>> distributeShards(
     }
 
     // determine shard id
-    std::string shardId = "s" + StringUtils::itoa(id + 1 + i);
+    std::string shardId = "s" + StringUtils::itoa(id + i);
 
     shards.emplace(shardId, serverIds);
   }
@@ -2168,12 +2263,14 @@ std::unordered_map<std::string, std::vector<std::string>> distributeShards(
 std::unique_ptr<LogicalCollection>
 ClusterMethods::createCollectionOnCoordinator(TRI_col_type_e collectionType,
                                               TRI_vocbase_t* vocbase,
-                                              VPackSlice parameters) {
+                                              VPackSlice parameters,
+                                              bool ignoreDistributeShardsLikeErrors,
+                                              bool waitForSyncReplication) {
   auto col = std::make_unique<LogicalCollection>(vocbase, parameters);
-  // Collection is a temporary collection object that undergoes sanity checks etc.
-  // It is not used anywhere and will be cleaned up after this call.
-  // Persist collection will return the real object.
-  return persistCollectionInAgency(col.get());
+    // Collection is a temporary collection object that undergoes sanity checks etc.
+    // It is not used anywhere and will be cleaned up after this call.
+    // Persist collection will return the real object.
+  return persistCollectionInAgency(col.get(), ignoreDistributeShardsLikeErrors, waitForSyncReplication);
 }
 #endif
 
@@ -2182,24 +2279,30 @@ ClusterMethods::createCollectionOnCoordinator(TRI_col_type_e collectionType,
 ////////////////////////////////////////////////////////////////////////////////
 
 std::unique_ptr<LogicalCollection>
-ClusterMethods::persistCollectionInAgency(LogicalCollection* col) {
+ClusterMethods::persistCollectionInAgency(
+  LogicalCollection* col, bool ignoreDistributeShardsLikeErrors, bool waitForSyncReplication) {
   std::string distributeShardsLike = col->distributeShardsLike();
   std::vector<std::string> dbServers;
   std::vector<std::string> avoid = col->avoidServers();
-    
+
   ClusterInfo* ci = ClusterInfo::instance();
   if (!distributeShardsLike.empty()) {
-
     CollectionNameResolver resolver(col->vocbase());
     TRI_voc_cid_t otherCid =
       resolver.getCollectionIdCluster(distributeShardsLike);
 
     if (otherCid != 0) {
+      bool chainOfDistributeShardsLike = false;
+
       std::string otherCidString 
         = arangodb::basics::StringUtils::itoa(otherCid);
+
       try {
         std::shared_ptr<LogicalCollection> collInfo =
-          ci->getCollection(col->dbName(), otherCidString);
+            ci->getCollection(col->dbName(), otherCidString);
+        if (!collInfo->distributeShardsLike().empty()) {
+          chainOfDistributeShardsLike = true;
+        }
         auto shards = collInfo->shardIds();
         auto shardList = ci->getShardList(otherCidString);
         for (auto const& s : *shardList) {
@@ -2210,13 +2313,21 @@ ClusterMethods::persistCollectionInAgency(LogicalCollection* col) {
             }
           }
         }
-      } catch (...) {
+      } catch (...) {}
+
+      if (chainOfDistributeShardsLike) {
+        THROW_ARANGO_EXCEPTION(TRI_ERROR_CLUSTER_CHAIN_OF_DISTRIBUTESHARDSLIKE);
       }
       col->distributeShardsLike(otherCidString);
+    } else {
+      if (ignoreDistributeShardsLikeErrors) {
+        col->distributeShardsLike(std::string());
+      } else {
+        THROW_ARANGO_EXCEPTION(TRI_ERROR_CLUSTER_UNKNOWN_DISTRIBUTESHARDSLIKE);
+      }
     }
     
-  } else if(!avoid.empty()) {
-    
+  } else if (!avoid.empty()) {
     size_t replicationFactor = col->replicationFactor();
     dbServers = ci->getCurrentDBServers();
     if (dbServers.size() - avoid.size() >= replicationFactor) {
@@ -2227,9 +2338,8 @@ ClusterMethods::persistCollectionInAgency(LogicalCollection* col) {
           }), dbServers.end());
     }
     std::random_shuffle(dbServers.begin(), dbServers.end());
-    
   }
-  
+
   // If the list dbServers is still empty, it will be filled in
   // distributeShards below.
 
@@ -2246,15 +2356,15 @@ ClusterMethods::persistCollectionInAgency(LogicalCollection* col) {
 
   std::unordered_set<std::string> const ignoreKeys{
       "allowUserKeys", "cid", /* cid really ignore?*/
-      "count",         "planId", "version",
+      "count",         "planId", "version", "objectId",
   };
   col->setStatus(TRI_VOC_COL_STATUS_LOADED);
-  VPackBuilder velocy = col->toVelocyPackIgnore(ignoreKeys, false);
+  VPackBuilder velocy = col->toVelocyPackIgnore(ignoreKeys, false, false);
 
   std::string errorMsg;
   int myerrno = ci->createCollectionCoordinator(
       col->dbName(), col->cid_as_string(),
-      col->numberOfShards(), col->replicationFactor(), velocy.slice(), errorMsg, 240.0);
+      col->numberOfShards(), col->replicationFactor(), waitForSyncReplication, velocy.slice(), errorMsg, 240.0);
 
   if (myerrno != TRI_ERROR_NO_ERROR) {
     if (errorMsg.empty()) {
@@ -2270,6 +2380,98 @@ ClusterMethods::persistCollectionInAgency(LogicalCollection* col) {
   // failed before.
   TRI_ASSERT(c != nullptr);
   return c->clone();
+}
+
+/// @brief fetch edges from TraverserEngines
+///        Contacts all TraverserEngines placed
+///        on the DBServers for the given list
+///        of vertex _id's.
+///        All non-empty and non-cached results
+///        of DBServers will be inserted in the
+///        datalake. Slices used in the result
+///        point to content inside of this lake
+///        only and do not run out of scope unless
+///        the lake is cleared.
+
+int fetchEdgesFromEngines(
+    std::string const& dbname,
+    std::unordered_map<ServerID, traverser::TraverserEngineID> const* engines,
+    VPackSlice const vertexId,
+    bool backward,
+    std::unordered_map<StringRef, VPackSlice>& cache,
+    std::vector<VPackSlice>& result,
+    std::vector<std::shared_ptr<VPackBuilder>>& datalake,
+    VPackBuilder& builder,
+    size_t& read) {
+  auto cc = ClusterComm::instance();
+  if (cc == nullptr) {
+    // nullptr happens only during controlled shutdown
+    return TRI_ERROR_SHUTTING_DOWN;
+  }
+  // TODO map id => ServerID if possible
+  // And go fast-path
+
+  // This function works for one specific vertex
+  // or for a list of vertices.
+  TRI_ASSERT(vertexId.isString() || vertexId.isArray());
+  builder.clear();
+  builder.openObject();
+  builder.add("backward", VPackValue(backward));
+  builder.add("keys", vertexId);
+  builder.close();
+
+  std::string const url =
+      "/_db/" + StringUtils::urlEncode(dbname) + "/_internal/traverser/edge/";
+
+  std::vector<ClusterCommRequest> requests;
+  auto body = std::make_shared<std::string>(builder.toJson());
+  for (auto const& engine : *engines) {
+    requests.emplace_back("server:" + engine.first, RequestType::PUT,
+                          url + StringUtils::itoa(engine.second), body);
+  }
+
+  // Perform the requests
+  size_t nrDone = 0;
+  cc->performRequests(requests, CL_DEFAULT_TIMEOUT, nrDone, Logger::COMMUNICATION);
+
+  result.clear();
+  // Now listen to the results:
+  for (auto const& req : requests) {
+    bool allCached = true;
+    auto res = req.result;
+    int commError = handleGeneralCommErrors(&res);
+    if (commError != TRI_ERROR_NO_ERROR) {
+      // oh-oh cluster is in a bad state
+      return commError;
+    }
+    TRI_ASSERT(res.answer != nullptr);
+    auto resBody = res.answer->toVelocyPackBuilderPtr();
+    VPackSlice resSlice = resBody->slice();
+    if (!resSlice.isObject()) {
+      // Response has invalid format
+      return TRI_ERROR_HTTP_CORRUPTED_JSON;
+    }
+    read += arangodb::basics::VelocyPackHelper::getNumericValue<size_t>(
+        resSlice, "readIndex", 0);
+    VPackSlice edges = resSlice.get("edges");
+    for (auto const& e : VPackArrayIterator(edges)) {
+      VPackSlice id = e.get(StaticStrings::IdString);
+      StringRef idRef(id);
+      auto resE = cache.find(idRef);
+      if (resE == cache.end()) {
+        // This edge is not yet cached. 
+        allCached = false;
+        cache.emplace(idRef, e);
+        result.emplace_back(e);
+      } else {
+        result.emplace_back(resE->second);
+      }
+    }
+    if (!allCached) {
+      datalake.emplace_back(resBody);
+    }
+  }
+  return TRI_ERROR_NO_ERROR;
 }
 
 }  // namespace arangodb

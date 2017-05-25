@@ -21,7 +21,7 @@
 /// @author Jan Steemann
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "RocksDBEngine/RocksDBRestExportHandler.h"
+#include "RocksDBRestExportHandler.h"
 #include "Basics/Exceptions.h"
 #include "Basics/MutexLocker.h"
 #include "Basics/VelocyPackHelper.h"
@@ -149,10 +149,10 @@ VPackBuilder RocksDBRestExportHandler::buildOptions(VPackSlice const& slice) {
 
     if (typeString == "include") {
       _restrictions.type =
-          RocksDBCollectionExport::Restrictions::RESTRICTION_INCLUDE;
+          CollectionExport::Restrictions::RESTRICTION_INCLUDE;
     } else if (typeString == "exclude") {
       _restrictions.type =
-          RocksDBCollectionExport::Restrictions::RESTRICTION_EXCLUDE;
+          CollectionExport::Restrictions::RESTRICTION_EXCLUDE;
     } else {
       THROW_ARANGO_EXCEPTION_MESSAGE(
           TRI_ERROR_BAD_PARAMETER,
@@ -223,38 +223,8 @@ void RocksDBRestExportHandler::createCursor() {
   }
 
   VPackSlice options = optionsBuilder.slice();
-
-  uint64_t waitTime = 0;
-  bool flush = arangodb::basics::VelocyPackHelper::getBooleanValue(
-      options, "flush", false);
-
-  if (flush) {
-    rocksdb::TransactionDB* db =
-        static_cast<RocksDBEngine*>(EngineSelectorFeature::ENGINE)->db();
-
-    rocksdb::Status status = db->GetBaseDB()->SyncWAL();
-
-    if (!status.ok()) {
-      Result res = rocksutils::convertStatus(status);
-      THROW_ARANGO_EXCEPTION(res.errorNumber());
-    }
-
-    double flushWait =
-        arangodb::basics::VelocyPackHelper::getNumericValue<double>(
-            options, "flushWait", 10.0);
-
-    waitTime = static_cast<uint64_t>(
-        flushWait * 1000 *
-        1000);  // flushWait is specified in s, but we need ns
-  }
-
   size_t limit = arangodb::basics::VelocyPackHelper::getNumericValue<size_t>(
       options, "limit", 0);
-
-  // this may throw!
-  auto collectionExport =
-      std::make_unique<RocksDBCollectionExport>(_vocbase, name, _restrictions);
-  collectionExport->run(waitTime, limit);
 
   size_t batchSize =
       arangodb::basics::VelocyPackHelper::getNumericValue<size_t>(
@@ -270,9 +240,8 @@ void RocksDBRestExportHandler::createCursor() {
   Cursor* c = nullptr;
   {
     auto cursor = std::make_unique<RocksDBExportCursor>(
-        _vocbase, TRI_NewTickServer(), collectionExport.get(), batchSize, ttl,
+        _vocbase, name, _restrictions, TRI_NewTickServer(), limit, batchSize, ttl,
         count);
-    collectionExport.release();
 
     cursor->use();
     c = cursors->addCursor(std::move(cursor));

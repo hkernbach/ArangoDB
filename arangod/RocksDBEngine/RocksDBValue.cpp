@@ -37,10 +37,6 @@ RocksDBValue RocksDBValue::Collection(VPackSlice const& data) {
   return RocksDBValue(RocksDBEntryType::Collection, data);
 }
 
-RocksDBValue RocksDBValue::Index(VPackSlice const& data) {
-  return RocksDBValue(RocksDBEntryType::Index, data);
-}
-
 RocksDBValue RocksDBValue::Document(VPackSlice const& data) {
   return RocksDBValue(RocksDBEntryType::Document, data);
 }
@@ -63,6 +59,10 @@ RocksDBValue RocksDBValue::UniqueIndexValue(StringRef const& primaryKey) {
 
 RocksDBValue RocksDBValue::View(VPackSlice const& data) {
   return RocksDBValue(RocksDBEntryType::View, data);
+}
+
+RocksDBValue RocksDBValue::ReplicationApplierConfig(VPackSlice const& data) {
+  return RocksDBValue(RocksDBEntryType::ReplicationApplierConfig, data);
 }
 
 RocksDBValue RocksDBValue::Empty(RocksDBEntryType type) {
@@ -141,9 +141,9 @@ RocksDBValue::RocksDBValue(RocksDBEntryType type, VPackSlice const& data)
   switch (_type) {
     case RocksDBEntryType::Database:
     case RocksDBEntryType::Collection:
-    case RocksDBEntryType::Index:
     case RocksDBEntryType::Document:
-    case RocksDBEntryType::View: {
+    case RocksDBEntryType::View:
+    case RocksDBEntryType::ReplicationApplierConfig: {
       _buffer.reserve(static_cast<size_t>(data.byteSize()));
       _buffer.append(reinterpret_cast<char const*>(data.begin()),
                      static_cast<size_t>(data.byteSize()));
@@ -155,9 +155,8 @@ RocksDBValue::RocksDBValue(RocksDBEntryType type, VPackSlice const& data)
   }
 }
 
-TRI_voc_rid_t RocksDBValue::revisionId(char const* data, size_t size) {
+TRI_voc_rid_t RocksDBValue::revisionId(char const* data, uint64_t size) {
   TRI_ASSERT(data != nullptr);
-  TRI_ASSERT(size == sizeof(uint64_t));
   return uint64FromPersistent(data);
 }
 

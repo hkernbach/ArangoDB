@@ -464,6 +464,7 @@ rest::ResponseCode GeneralResponse::responseCode(int code) {
       return ResponseCode::SERVICE_UNAVAILABLE;
 
     case TRI_ERROR_CLUSTER_UNSUPPORTED:
+    case TRI_ERROR_NOT_IMPLEMENTED:
       return ResponseCode::NOT_IMPLEMENTED;
 
     default:

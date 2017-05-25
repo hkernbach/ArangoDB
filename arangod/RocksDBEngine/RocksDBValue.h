@@ -47,13 +47,13 @@ class RocksDBValue {
 
   static RocksDBValue Database(VPackSlice const& data);
   static RocksDBValue Collection(VPackSlice const& data);
-  static RocksDBValue Index(VPackSlice const& data);
   static RocksDBValue Document(VPackSlice const& data);
   static RocksDBValue PrimaryIndexValue(TRI_voc_rid_t revisionId);
   static RocksDBValue EdgeIndexValue();
   static RocksDBValue IndexValue();
   static RocksDBValue UniqueIndexValue(arangodb::StringRef const& primaryKey);
   static RocksDBValue View(VPackSlice const& data);
+  static RocksDBValue ReplicationApplierConfig(VPackSlice const& data);
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Used to construct an empty value of the given type for retrieval
@@ -84,7 +84,7 @@ class RocksDBValue {
   /// @brief Extracts the VelocyPack data from a value
   ///
   /// May be called only values of the following types: Database, Collection,
-  /// Index, Document, and View. Other types will throw.
+  /// Document, and View. Other types will throw.
   //////////////////////////////////////////////////////////////////////////////
   static VPackSlice data(RocksDBValue const&);
   static VPackSlice data(rocksdb::Slice const&);
@@ -94,14 +94,18 @@ class RocksDBValue {
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Returns a reference to the underlying string buffer.
   //////////////////////////////////////////////////////////////////////////////
-  std::string const& string() { return _buffer; } // to be used with put
-  std::string* buffer() { return &_buffer; }      // to be used with get
-  VPackSlice slice() const { return VPackSlice(
-      reinterpret_cast<uint8_t const*>(_buffer.data())
-  ); }      // return a slice
+  std::string const& string() { return _buffer; }  // to be used with put
+  std::string* buffer() { return &_buffer; }       // to be used with get
+  VPackSlice slice() const {
+    return VPackSlice(reinterpret_cast<uint8_t const*>(_buffer.data()));
+  }  // return a slice
 
   RocksDBValue(RocksDBEntryType type, rocksdb::Slice slice)
-    : _type(type), _buffer(slice.data(),slice.size()) {}
+      : _type(type), _buffer(slice.data(), slice.size()) {}
+ 
+  RocksDBValue(RocksDBValue&& other) 
+      : _type(other._type), _buffer(std::move(other._buffer)) {}
+ 
  private:
   RocksDBValue();
   explicit RocksDBValue(RocksDBEntryType type);
@@ -111,7 +115,7 @@ class RocksDBValue {
 
  private:
   static RocksDBEntryType type(char const* data, size_t size);
-  static TRI_voc_rid_t revisionId(char const* data, size_t size);
+  static TRI_voc_rid_t revisionId(char const* data, uint64_t size);
   static StringRef primaryKey(char const* data, size_t size);
   static VPackSlice data(char const* data, size_t size);
 

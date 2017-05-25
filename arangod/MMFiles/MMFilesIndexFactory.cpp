@@ -239,7 +239,7 @@ static int EnhanceJsonIndexFulltext(VPackSlice const definition,
 ////////////////////////////////////////////////////////////////////////////////
 
 int MMFilesIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
-    VPackBuilder& enhanced, bool create) const {
+    VPackBuilder& enhanced, bool create, bool isCoordinator) const {
 
   // extract index type
   Index::IndexType type = Index::TRI_IDX_TYPE_UNKNOWN;
@@ -447,4 +447,8 @@ void MMFilesIndexFactory::fillSystemIndexes(
     systemIndexes.emplace_back(
         std::make_shared<arangodb::MMFilesEdgeIndex>(1, col));
   }
+}
+  
+std::vector<std::string> MMFilesIndexFactory::supportedIndexes() const {
+  return std::vector<std::string>{ "primary", "edge", "hash", "skiplist", "persistent", "geo", "fulltext" };
 }

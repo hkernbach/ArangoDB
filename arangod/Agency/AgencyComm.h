@@ -84,7 +84,7 @@ enum class AgencyReadOperationType { READ };
 // --SECTION--                                          AgencyValueOperationType
 // -----------------------------------------------------------------------------
 
-enum class AgencyValueOperationType { SET, OBSERVE, UNOBSERVE, PUSH, PREPEND };
+enum class AgencyValueOperationType { ERASE, SET, OBSERVE, UNOBSERVE, PUSH, PREPEND };
 
 // -----------------------------------------------------------------------------
 // --SECTION--                                         AgencySimpleOperationType
@@ -130,6 +130,8 @@ class AgencyOperationType {
             return "push";
           case AgencyValueOperationType::PREPEND:
             return "prepend";
+          case AgencyValueOperationType::ERASE:
+            return "erase";
           default:
             return "unknown_operation_type";
         }
@@ -294,20 +296,30 @@ public:
 
 struct AgencyGeneralTransaction : public AgencyTransaction {
 
+  typedef std::pair<std::vector<AgencyOperation>,std::vector<AgencyPrecondition>> TransactionType;
+
   explicit AgencyGeneralTransaction(
-    std::pair<AgencyOperation,AgencyPrecondition> const& operation) :
+    std::pair<AgencyOperation,AgencyPrecondition> const& trx) :
     clientId(to_string(boost::uuids::random_generator()())) {
-    operations.push_back(operation);
+    transactions.emplace_back(
+      TransactionType(std::vector<AgencyOperation>(1,trx.first),
+                      std::vector<AgencyPrecondition>(1,trx.second)));
   }
   
   explicit AgencyGeneralTransaction(
-    std::vector<std::pair<AgencyOperation,AgencyPrecondition>> const& _opers) :
-    operations(_opers),
-    clientId(to_string(boost::uuids::random_generator()())) {}
+    std::vector<std::pair<AgencyOperation,AgencyPrecondition>> const& trxs) :
+    clientId(to_string(boost::uuids::random_generator()())) {
+    for (const auto& trx : trxs) {
+      transactions.emplace_back(
+        TransactionType(std::vector<AgencyOperation>(1,trx.first),
+                        std::vector<AgencyPrecondition>(1,trx.second)));
+      
+    }
+  }
   
   AgencyGeneralTransaction() = default;
   
-  std::vector<std::pair<AgencyOperation,AgencyPrecondition>> operations;
+  std::vector<TransactionType> transactions;
 
   void toVelocyPack(
     arangodb::velocypack::Builder& builder) const override final;
@@ -621,11 +633,11 @@ class AgencyComm {
 
   uint64_t uniqid(uint64_t, double);
 
-  AgencyCommResult registerCallback(std::string const& key,
-                                    std::string const& endpoint);
+  AgencyCommResult registerCallback(
+    std::string const& key, std::string const& endpoint);
 
-  AgencyCommResult unregisterCallback(std::string const& key,
-                                      std::string const& endpoint);
+  AgencyCommResult unregisterCallback(
+    std::string const& key, std::string const& endpoint);
 
   void updateEndpoints(arangodb::velocypack::Slice const&);
 

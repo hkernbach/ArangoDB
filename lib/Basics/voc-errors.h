@@ -53,9 +53,6 @@
 ///   Will be raised when a request is canceled by the user.
 /// - 22: @LIT{intentional debug error}
 ///   Will be raised intentionally during debugging.
-/// - 23: @LIT{not yet implemented}
-///   Will be raised when hitting an unimplemented feature that will be
-///   implemented soon.
 /// - 25: @LIT{IP address is invalid}
 ///   Will be raised when the structure of an IP address is invalid.
 /// - 27: @LIT{file exists}
@@ -388,6 +385,16 @@
 /// - 1483: @LIT{could not drop index in plan}
 ///   Will be raised when a coordinator in a cluster cannot remove an index
 ///   from the Plan hierarchy in the agency.
+/// - 1484: @LIT{chain of distributeShardsLike references}
+///   Will be raised if one tries to create a collection with a
+///   distributeShardsLike attribute which points to another collection that
+///   also has one.
+/// - 1485: @LIT{must not drop collection while another has a distributeShardsLike attribute pointing to it}
+///   Will be raised if one tries to drop a collection to which another
+///   collection points with its distributeShardsLike attribute.
+/// - 1486: @LIT{must not have a distributeShardsLike attribute pointing to an unknown collection}
+///   Will be raised if one tries to create a collection which points to an
+///   unknown collection in its distributeShardsLike attribute.
 /// - 1500: @LIT{query killed}
 ///   Will be raised when a running query is killed by an explicit admin
 ///   command.
@@ -529,6 +536,26 @@
 /// - 1753: @LIT{service upload failed}
 ///   Will be raised when a service upload from the client to the ArangoDB
 ///   server failed.
+/// - 1800: @LIT{cannot init a LDAP connection}
+///   can not init a LDAP connection
+/// - 1801: @LIT{cannot set a LDAP option}
+///   can not set a LDAP option
+/// - 1802: @LIT{cannot bind to a LDAP server}
+///   can not bind to a LDAP server
+/// - 1803: @LIT{cannot unbind from a LDAP server}
+///   can not unbind from a LDAP server
+/// - 1804: @LIT{cannot issue a LDAP search}
+///   can not search the LDAP server
+/// - 1805: @LIT{cannot start a TLS LDAP session}
+///   can not star a TLS LDAP session
+/// - 1806: @LIT{LDAP didn't found any objects}
+///   LDAP didn't found any objects with the specified search query
+/// - 1807: @LIT{LDAP found zero ore more than one user}
+///   LDAP found zero ore more than one user
+/// - 1808: @LIT{LDAP found a user, but its not the desired one}
+///   LDAP found a user, but its not the desired one
+/// - 1820: @LIT{invalid ldap mode}
+///   cant distinguish a valid mode for provided ldap configuration
 /// - 1850: @LIT{invalid task id}
 ///   Will be raised when a task is created with an invalid id.
 /// - 1851: @LIT{duplicate task id}
@@ -641,6 +668,8 @@
 ///   The service does not have a script with this name.
 /// - 3100: @LIT{cannot locate module}
 ///   The module path could not be resolved.
+/// - 3101: @LIT{syntax error in module}
+///   The module could not be parsed because of a syntax error.
 /// - 3103: @LIT{failed to invoke module}
 ///   Failed to invoke the module in its context.
 /// - 4000: @LIT{collection is not smart}
@@ -668,6 +697,8 @@
 ///   The inform message in the agency must contain an object 'pool'.
 /// - 20020: @LIT{Inquiry failed}
 ///   Inquiry by clientId failed
+/// - 20501: @LIT{general supervision failure}
+///   General supervision failure.
 /// - 21001: @LIT{dispatcher stopped}
 ///   Will be returned if a shutdown is in progress.
 /// - 21002: @LIT{named queue does not exist}
@@ -917,17 +948,6 @@ void TRI_InitializeErrorMessages ();
 ////////////////////////////////////////////////////////////////////////////////
 
 #define TRI_ERROR_DEBUG                                                   (22)
-
-////////////////////////////////////////////////////////////////////////////////
-/// @brief 23: ERROR_NOT_YET_IMPLEMENTED
-///
-/// not yet implemented
-///
-/// Will be raised when hitting an unimplemented feature that will be
-/// implemented soon.
-////////////////////////////////////////////////////////////////////////////////
-
-#define TRI_ERROR_NOT_YET_IMPLEMENTED                                     (23)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief 25: ERROR_IP_ADDRESS_INVALID
@@ -2281,6 +2301,42 @@ void TRI_InitializeErrorMessages ();
 #define TRI_ERROR_CLUSTER_COULD_NOT_DROP_INDEX_IN_PLAN                    (1483)
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief 1484: ERROR_CLUSTER_CHAIN_OF_DISTRIBUTESHARDSLIKE
+///
+/// chain of distributeShardsLike references
+///
+/// Will be raised if one tries to create a collection with a
+/// distributeShardsLike attribute which points to another collection that also
+/// has one.
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_CLUSTER_CHAIN_OF_DISTRIBUTESHARDSLIKE                   (1484)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1485: ERROR_CLUSTER_MUST_NOT_DROP_COLL_OTHER_DISTRIBUTESHARDSLIKE
+///
+/// must not drop collection while another has a distributeShardsLike attribute
+/// pointing to it
+///
+/// Will be raised if one tries to drop a collection to which another
+/// collection points with its distributeShardsLike attribute.
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_CLUSTER_MUST_NOT_DROP_COLL_OTHER_DISTRIBUTESHARDSLIKE   (1485)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1486: ERROR_CLUSTER_UNKNOWN_DISTRIBUTESHARDSLIKE
+///
+/// must not have a distributeShardsLike attribute pointing to an unknown
+/// collection
+///
+/// Will be raised if one tries to create a collection which points to an
+/// unknown collection in its distributeShardsLike attribute.
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_CLUSTER_UNKNOWN_DISTRIBUTESHARDSLIKE                    (1486)
+
+////////////////////////////////////////////////////////////////////////////////
 /// @brief 1500: ERROR_QUERY_KILLED
 ///
 /// query killed
@@ -2874,6 +2930,106 @@ void TRI_InitializeErrorMessages ();
 #define TRI_ERROR_SERVICE_UPLOAD_FAILED                                   (1753)
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief 1800: ERROR_LDAP_CANNOT_INIT
+///
+/// cannot init a LDAP connection
+///
+/// can not init a LDAP connection
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_CANNOT_INIT                                        (1800)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1801: ERROR_LDAP_CANNOT_SET_OPTION
+///
+/// cannot set a LDAP option
+///
+/// can not set a LDAP option
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_CANNOT_SET_OPTION                                  (1801)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1802: ERROR_LDAP_CANNOT_BIND
+///
+/// cannot bind to a LDAP server
+///
+/// can not bind to a LDAP server
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_CANNOT_BIND                                        (1802)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1803: ERROR_LDAP_CANNOT_UNBIND
+///
+/// cannot unbind from a LDAP server
+///
+/// can not unbind from a LDAP server
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_CANNOT_UNBIND                                      (1803)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1804: ERROR_LDAP_CANNOT_SEARCH
+///
+/// cannot issue a LDAP search
+///
+/// can not search the LDAP server
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_CANNOT_SEARCH                                      (1804)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1805: ERROR_LDAP_CANNOT_START_TLS
+///
+/// cannot start a TLS LDAP session
+///
+/// can not star a TLS LDAP session
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_CANNOT_START_TLS                                   (1805)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1806: ERROR_LDAP_FOUND_NO_OBJECTS
+///
+/// LDAP didn't found any objects
+///
+/// LDAP didn't found any objects with the specified search query
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_FOUND_NO_OBJECTS                                   (1806)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1807: ERROR_LDAP_NOT_ONE_USER_FOUND
+///
+/// LDAP found zero ore more than one user
+///
+/// LDAP found zero ore more than one user
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_NOT_ONE_USER_FOUND                                 (1807)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1808: ERROR_LDAP_USER_NOT_IDENTIFIED
+///
+/// LDAP found a user, but its not the desired one
+///
+/// LDAP found a user, but its not the desired one
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_USER_NOT_IDENTIFIED                                (1808)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 1820: ERROR_LDAP_INVALID_MODE
+///
+/// invalid ldap mode
+///
+/// cant distinguish a valid mode for provided ldap configuration
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_LDAP_INVALID_MODE                                       (1820)
+
+////////////////////////////////////////////////////////////////////////////////
 /// @brief 1850: ERROR_TASK_INVALID_ID
 ///
 /// invalid task id
@@ -3416,6 +3572,16 @@ void TRI_InitializeErrorMessages ();
 #define TRI_ERROR_MODULE_NOT_FOUND                                        (3100)
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief 3101: ERROR_MODULE_SYNTAX_ERROR
+///
+/// syntax error in module
+///
+/// The module could not be parsed because of a syntax error.
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_MODULE_SYNTAX_ERROR                                     (3101)
+
+////////////////////////////////////////////////////////////////////////////////
 /// @brief 3103: ERROR_MODULE_FAILURE
 ///
 /// failed to invoke module
@@ -3537,6 +3703,16 @@ void TRI_InitializeErrorMessages ();
 ////////////////////////////////////////////////////////////////////////////////
 
 #define TRI_ERROR_AGENCY_INQUIRE_CLIENT_ID_MUST_BE_STRING                 (20020)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 20501: ERROR_SUPERVISION_GENERAL_FAILURE
+///
+/// general supervision failure
+///
+/// General supervision failure.
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_SUPERVISION_GENERAL_FAILURE                             (20501)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief 21001: ERROR_DISPATCHER_IS_STOPPING

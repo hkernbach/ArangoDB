@@ -77,24 +77,20 @@ install(
     ${PROJECT_SOURCE_DIR}/js/apps
     ${PROJECT_SOURCE_DIR}/js/contrib
     ${PROJECT_SOURCE_DIR}/js/server
-  DESTINATION
-    ${CMAKE_INSTALL_DATAROOTDIR_ARANGO}/js
-  REGEX
-    "^.*/server/tests$" EXCLUDE
-  REGEX
-    "^.*/aardvark/APP/node_modules$" EXCLUDE
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR_ARANGO}/js
+  REGEX       "^.*/server/tests$"                          EXCLUDE
+  REGEX       "^.*/aardvark/APP/node_modules$"             EXCLUDE
+  REGEX       "^.*/aardvark/APP/test$"                     EXCLUDE
+  REGEX       "^.*/.bin"                                   EXCLUDE
 )
 
 if (USE_ENTERPRISE)
   install(
-    DIRECTORY
-      ${PROJECT_SOURCE_DIR}/enterprise/js/server
-    DESTINATION
-      ${CMAKE_INSTALL_DATAROOTDIR_ARANGO}/js
-    REGEX
-      "^.*/server/tests$" EXCLUDE
-    REGEX
-      "^.*/aardvark/APP/node_modules$" EXCLUDE
+    DIRECTORY   ${PROJECT_SOURCE_DIR}/enterprise/js/server
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR_ARANGO}/js
+    REGEX       "^.*/server/tests$"                        EXCLUDE
+    REGEX       "^.*/aardvark/APP/node_modules$"           EXCLUDE
+    REGEX       "^.*/aardvark/APP/test$"                   EXCLUDE
   )
 endif ()
 
@@ -157,6 +153,9 @@ if (UNIX)
       ${ARANGODB_SOURCE_DIR}/Installation/systemd/arangodb3.service.in
       ${PROJECT_BINARY_DIR}/arangodb3.service
       NEWLINE_STYLE UNIX)
+    if (CMAKE_INSTALL_PREFIX AND NOT "${CMAKE_INSTALL_PREFIX}" STREQUAL "/")
+      set(SYSTEMD_UNIT_DIR "${CMAKE_INSTALL_PREFIX}/${SYSTEMD_UNIT_DIR}/")
+    endif()
     install(FILES ${PROJECT_BINARY_DIR}/arangodb3.service
       DESTINATION ${SYSTEMD_UNIT_DIR}/
       RENAME ${SERVICE_NAME}.service)
@@ -204,7 +203,7 @@ install(FILES ${ICU_DT}
   DESTINATION "${INSTALL_ICU_DT_DEST}"
   RENAME ${ICU_DT_DEST})
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   # so we don't need to ship dll's twice, make it one directory:
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/InstallMacros.cmake)
   set(CMAKE_INSTALL_FULL_SBINDIR     "${CMAKE_INSTALL_FULL_BINDIR}")
@@ -225,4 +224,17 @@ if (MSVC)
 
   install (FILES "${LIB_EAY_RELEASE_DLL}" DESTINATION "${CMAKE_INSTALL_BINDIR}/" COMPONENT Libraries)  
   install (FILES "${SSL_EAY_RELEASE_DLL}" DESTINATION "${CMAKE_INSTALL_BINDIR}/" COMPONENT Libraries)  
+endif()
+
+
+if (THIRDPARTY_SBIN)
+  install(FILES ${THIRDPARTY_SBIN}
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    DESTINATION "${CMAKE_INSTALL_SBINDIR}")
+endif()
+
+if (THIRDPARTY_BIN)
+  install(FILES ${THIRDPARTY_BIN}
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()

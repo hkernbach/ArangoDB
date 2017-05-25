@@ -38,6 +38,7 @@
 #include "Cluster/ClusterMethods.h"
 #include "RestServer/DatabaseFeature.h"
 #include "StorageEngine/EngineSelectorFeature.h"
+#include "StorageEngine/PhysicalCollection.h"
 #include "StorageEngine/StorageEngine.h"
 #include "Utils/OperationOptions.h"
 #include "Utils/OperationResult.h"
@@ -53,7 +54,6 @@
 #include "V8Server/v8-vocindex.h"
 #include "VocBase/KeyGenerator.h"
 #include "VocBase/LogicalCollection.h"
-#include "VocBase/PhysicalCollection.h"
 #include "VocBase/modes.h"
 #include "Pregel/Conductor.h"
 #include "Pregel/PregelFeature.h"
@@ -1053,6 +1053,102 @@ static void JS_IsLeader(v8::FunctionCallbackInfo<v8::Value> const& args) {
   TRI_V8_TRY_CATCH_END
 }
 
+#ifdef DEBUG_SYNC_REPLICATION
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief was docuBlock getFollowers
+////////////////////////////////////////////////////////////////////////////////
+
+static void JS_AddFollower(v8::FunctionCallbackInfo<v8::Value> const& args) {
+  TRI_V8_TRY_CATCH_BEGIN(isolate);
+  v8::HandleScope scope(isolate);
+
+  TRI_vocbase_t* vocbase = GetContextVocBase(isolate);
+
+  if (vocbase == nullptr) {
+    TRI_V8_THROW_EXCEPTION(TRI_ERROR_ARANGO_DATABASE_NOT_FOUND);
+  }
+
+  if (args.Length() < 1) {
+    TRI_V8_THROW_EXCEPTION_USAGE("addFollower(<name>)");
+  }
+
+  ServerID const serverId = TRI_ObjectToString(args[0]);
+
+  if (ServerState::instance()->isDBServer()) {
+    arangodb::LogicalCollection const* v8Collection =
+        TRI_UnwrapClass<arangodb::LogicalCollection>(args.Holder(),
+                                                     WRP_VOCBASE_COL_TYPE);
+
+    if (v8Collection == nullptr) {
+      TRI_V8_THROW_EXCEPTION_INTERNAL("cannot extract collection");
+    }
+
+    TRI_vocbase_t* vocbase = v8Collection->vocbase();
+    if (vocbase == nullptr) {
+      TRI_V8_THROW_EXCEPTION(TRI_ERROR_ARANGO_DATABASE_NOT_FOUND);
+    }
+
+    std::string collectionName = v8Collection->name();
+    auto collection = vocbase->lookupCollection(collectionName);
+    if (collection == nullptr) {
+      TRI_V8_THROW_EXCEPTION(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND);
+    }
+    collection->followers()->add(serverId);
+  }
+
+  TRI_V8_RETURN_TRUE();
+  TRI_V8_TRY_CATCH_END
+}
+
+#endif
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief was docuBlock removeFollower
+////////////////////////////////////////////////////////////////////////////////
+
+static void JS_RemoveFollower(v8::FunctionCallbackInfo<v8::Value> const& args) {
+  TRI_V8_TRY_CATCH_BEGIN(isolate);
+  v8::HandleScope scope(isolate);
+
+  TRI_vocbase_t* vocbase = GetContextVocBase(isolate);
+
+  if (vocbase == nullptr) {
+    TRI_V8_THROW_EXCEPTION(TRI_ERROR_ARANGO_DATABASE_NOT_FOUND);
+  }
+
+  if (args.Length() < 1) {
+    TRI_V8_THROW_EXCEPTION_USAGE("removeFollower(<name>)");
+  }
+
+  ServerID const serverId = TRI_ObjectToString(args[0]);
+
+  if (ServerState::instance()->isDBServer()) {
+    arangodb::LogicalCollection const* v8Collection =
+        TRI_UnwrapClass<arangodb::LogicalCollection>(args.Holder(),
+                                                     WRP_VOCBASE_COL_TYPE);
+
+    if (v8Collection == nullptr) {
+      TRI_V8_THROW_EXCEPTION_INTERNAL("cannot extract collection");
+    }
+
+    TRI_vocbase_t* vocbase = v8Collection->vocbase();
+    if (vocbase == nullptr) {
+      TRI_V8_THROW_EXCEPTION(TRI_ERROR_ARANGO_DATABASE_NOT_FOUND);
+    }
+
+    std::string collectionName = v8Collection->name();
+    auto collection = vocbase->lookupCollection(collectionName);
+    if (collection == nullptr) {
+      TRI_V8_THROW_EXCEPTION(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND);
+    }
+    collection->followers()->remove(serverId);
+  }
+
+  TRI_V8_RETURN_TRUE();
+  TRI_V8_TRY_CATCH_END
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief was docuBlock getFollowers
 ////////////////////////////////////////////////////////////////////////////////
@@ -1279,7 +1375,7 @@ static void JS_PropertiesVocbaseCol(
         "allowUserKeys", "cid",  "count",  "deleted", "id",
         "indexes",       "name", "path",   "planId",  "shards",
         "status",        "type", "version"};
-    VPackBuilder vpackProperties = c->toVelocyPackIgnore(ignoreKeys, true);
+    VPackBuilder vpackProperties = c->toVelocyPackIgnore(ignoreKeys, true, false);
 
     // return the current parameter set
     v8::Handle<v8::Object> result =
@@ -1291,7 +1387,7 @@ static void JS_PropertiesVocbaseCol(
   SingleCollectionTransaction trx(
       transaction::V8Context::Create(collection->vocbase(), true),
       collection->cid(),
-      isModification ? AccessMode::Type::WRITE : AccessMode::Type::READ);
+      isModification ? AccessMode::Type::EXCLUSIVE : AccessMode::Type::READ);
 
   if (!isModification) {
     trx.addHint(transaction::Hints::Hint::NO_USAGE_LOCK);
@@ -1339,7 +1435,7 @@ static void JS_PropertiesVocbaseCol(
       /* These are only relevant for cluster */
       "distributeShardsLike", "isSmart", "numberOfShards", "replicationFactor",
       "shardKeys"};
-  VPackBuilder vpackProperties = collection->toVelocyPackIgnore(ignoreKeys, true);
+  VPackBuilder vpackProperties = collection->toVelocyPackIgnore(ignoreKeys, true, false);
 
   // return the current parameter set
   v8::Handle<v8::Object> result =
@@ -1925,7 +2021,7 @@ static void JS_PregelStart(v8::FunctionCallbackInfo<v8::Value> const& args) {
         //  TRI_V8_THROW_EXCEPTION_USAGE(
         //                               "Vertex collection needs to be shared after '_key'");
         //}
-        if (coll->deleted()) {
+        if (coll->status() == TRI_VOC_COL_STATUS_DELETED || coll->deleted()) {
           TRI_V8_THROW_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND, name);
         }
       } catch (...) {
@@ -1933,7 +2029,8 @@ static void JS_PregelStart(v8::FunctionCallbackInfo<v8::Value> const& args) {
       }
     } else  if (ss->getRole() == ServerState::ROLE_SINGLE) {
       LogicalCollection *coll = vocbase->lookupCollection(name);
-      if (coll == nullptr || coll->deleted()) {
+      if (coll == nullptr || coll->status() == TRI_VOC_COL_STATUS_DELETED
+          || coll->deleted()) {
         TRI_V8_THROW_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND, name);
       }
     } else {
@@ -1960,7 +2057,7 @@ static void JS_PregelStart(v8::FunctionCallbackInfo<v8::Value> const& args) {
                                          "smart graphs");
           }
         }
-        if (coll->deleted()) {
+        if (coll->status() == TRI_VOC_COL_STATUS_DELETED || coll->deleted()) {
           TRI_V8_THROW_EXCEPTION_MESSAGE(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND, name);
         }
         // smart edge collections contain multiple actual collections
@@ -2003,7 +2100,7 @@ static void JS_PregelStatus(v8::FunctionCallbackInfo<v8::Value> const& args) {
     TRI_V8_THROW_EXCEPTION_USAGE("_pregelStatus(<executionNum>]");
   }
   uint64_t executionNum = TRI_ObjectToUInt64(args[0], true);
-  pregel::Conductor *c = pregel::PregelFeature::instance()->conductor(executionNum);
+  auto c = pregel::PregelFeature::instance()->conductor(executionNum);
   if (!c) {
     TRI_V8_THROW_EXCEPTION_USAGE("Execution number is invalid");
   }
@@ -2031,7 +2128,7 @@ static void JS_PregelCancel(v8::FunctionCallbackInfo<v8::Value> const& args) {
     TRI_V8_THROW_EXCEPTION_USAGE("_pregelStatus(<executionNum>]");
   }
   uint64_t executionNum = TRI_ObjectToUInt64(args[0], true);
-  pregel::Conductor *c = pregel::PregelFeature::instance()->conductor(executionNum);
+  auto c = pregel::PregelFeature::instance()->conductor(executionNum);
   if (!c) {
     TRI_V8_THROW_EXCEPTION_USAGE("Execution number is invalid");
   }
@@ -2055,7 +2152,7 @@ static void JS_PregelAQLResult(v8::FunctionCallbackInfo<v8::Value> const& args) 
   
   uint64_t executionNum = TRI_ObjectToUInt64(args[0], true);
   if (ServerState::instance()->isCoordinator()) {
-    pregel::Conductor *c = pregel::PregelFeature::instance()->conductor(executionNum);
+    auto c = pregel::PregelFeature::instance()->conductor(executionNum);
     if (!c) {
       TRI_V8_THROW_EXCEPTION_USAGE("Execution number is invalid");
     }
@@ -2790,6 +2887,8 @@ static void JS_CompletionsVocbase(
   result->Set(j++, TRI_V8_ASCII_STRING("_drop()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_dropDatabase()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_dropView()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_engine()"));
+  result->Set(j++, TRI_V8_ASCII_STRING("_engineStats()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_executeTransaction()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_exists()"));
   result->Set(j++, TRI_V8_ASCII_STRING("_id"));
@@ -2976,6 +3075,12 @@ void TRI_InitV8Collections(v8::Handle<v8::Context> context,
                        JS_AssumeLeadership, true);
   TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("isLeader"),
                        JS_IsLeader, true);
+#ifdef DEBUG_SYNC_REPLICATION
+  TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("addFollower"),
+                       JS_AddFollower, true);
+#endif
+  TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("removeFollower"),
+                       JS_RemoveFollower, true);
   TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("getFollowers"),
                        JS_GetFollowers, true);
   TRI_AddMethodVocbase(isolate, rt, TRI_V8_ASCII_STRING("load"),

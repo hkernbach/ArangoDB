@@ -29,6 +29,7 @@
 #include "Pregel/IncomingCache.h"
 #include "Pregel/MasterContext.h"
 #include "Pregel/VertexComputation.h"
+#include <atomic>
 
 using namespace arangodb;
 using namespace arangodb::pregel;
@@ -64,7 +65,7 @@ struct SCCComputation
       case SCCPhase::TRANSPOSE: {
         vertexState->parents.clear();
         SenderMessage<uint64_t> message(pregelId(), 0);
-        sendMessageToAllEdges(message);
+        sendMessageToAllNeighbours(message);
         break;
       }
 
@@ -85,7 +86,7 @@ struct SCCComputation
           voteHalt();
         } else {
           SenderMessage<uint64_t> message(pregelId(), vertexState->color);
-          sendMessageToAllEdges(message);
+          sendMessageToAllNeighbours(message);
         }
         break;
       }
@@ -102,7 +103,7 @@ struct SCCComputation
         }
         if (old != vertexState->color) {
           SenderMessage<uint64_t> message(pregelId(), vertexState->color);
-          sendMessageToAllEdges(message);
+          sendMessageToAllNeighbours(message);
           aggregate(kFoundNewMax, true);
         }
         break;
@@ -146,9 +147,10 @@ SCC::createComputation(WorkerConfig const* config) const {
 
 struct SCCGraphFormat : public GraphFormat<SCCValue, int8_t> {
   const std::string _resultField;
-  uint64_t vertexIdRange = 0;
+  std::atomic<uint64_t> vertexIdRange;
 
-  explicit SCCGraphFormat(std::string const& result) : _resultField(result) {}
+  explicit SCCGraphFormat(std::string const& result)
+    : _resultField(result), vertexIdRange(0) {}
 
   void willLoadVertices(uint64_t count) override {
     // if we aren't running in a cluster it doesn't matter

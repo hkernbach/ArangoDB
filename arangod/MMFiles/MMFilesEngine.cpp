@@ -22,13 +22,13 @@
 /// @author Jan Christoph Uhde
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "MMFilesEngine.h"
 #include "Basics/FileUtils.h"
 #include "Basics/MutexLocker.h"
 #include "Basics/ReadLocker.h"
 #include "Basics/StringUtils.h"
 #include "Basics/VelocyPackHelper.h"
 #include "Basics/WriteLocker.h"
+#include "Basics/build.h"
 #include "Basics/encoding.h"
 #include "Basics/files.h"
 #include "MMFiles/MMFilesAqlFunctions.h"
@@ -37,7 +37,9 @@
 #include "MMFiles/MMFilesCompactorThread.h"
 #include "MMFiles/MMFilesDatafile.h"
 #include "MMFiles/MMFilesDatafileHelper.h"
+#include "MMFiles/MMFilesEngine.h"
 #include "MMFiles/MMFilesIndexFactory.h"
+#include "MMFiles/MMFilesInitialSync.h"
 #include "MMFiles/MMFilesLogfileManager.h"
 #include "MMFiles/MMFilesOptimizerRules.h"
 #include "MMFiles/MMFilesPersistentIndex.h"
@@ -45,13 +47,16 @@
 #include "MMFiles/MMFilesRestHandlers.h"
 #include "MMFiles/MMFilesTransactionCollection.h"
 #include "MMFiles/MMFilesTransactionContextData.h"
+#include "MMFiles/MMFilesTransactionManager.h"
 #include "MMFiles/MMFilesTransactionState.h"
 #include "MMFiles/MMFilesV8Functions.h"
 #include "MMFiles/MMFilesView.h"
 #include "MMFiles/MMFilesWalRecoveryFeature.h"
+#include "MMFiles/mmfiles-replication-dump.h"
 #include "Random/RandomGenerator.h"
 #include "RestServer/DatabaseFeature.h"
 #include "RestServer/DatabasePathFeature.h"
+#include "RestServer/ServerIdFeature.h"
 #include "RestServer/ViewTypesFeature.h"
 #include "StorageEngine/EngineSelectorFeature.h"
 #include "VocBase/LogicalCollection.h"
@@ -142,7 +147,7 @@ MMFilesEngine::MMFilesEngine(application_features::ApplicationServer* server)
     : StorageEngine(server, EngineName, FeatureName, new MMFilesIndexFactory()),
       _isUpgrade(false),
       _maxTick(0) {
-  startsAfter("MMFilesPersistentIndex");
+  startsAfter("MMFilesPersistentIndex"); // yes, intentional!
     
   server->addFeature(new MMFilesWalRecoveryFeature(server));
   server->addFeature(new MMFilesLogfileManager(server));
@@ -152,7 +157,7 @@ MMFilesEngine::MMFilesEngine(application_features::ApplicationServer* server)
 MMFilesEngine::~MMFilesEngine() {}
 
 // perform a physical deletion of the database
-Result MMFilesEngine::dropDatabase(Database* database) {
+Result MMFilesEngine::dropDatabase(TRI_vocbase_t* database) {
   // delete persistent indexes for this database
   MMFilesPersistentIndexFeature::dropDatabase(database->id());
 
@@ -248,9 +253,13 @@ void MMFilesEngine::stop() {
     logfileManager->waitForCollector();
   }
 }
+  
+TransactionManager* MMFilesEngine::createTransactionManager() {
+  return new MMFilesTransactionManager();
+}
 
 transaction::ContextData* MMFilesEngine::createTransactionContextData() {
-  return new MMFilesTransactionContextData;
+  return new MMFilesTransactionContextData();
 }
 
 TransactionState* MMFilesEngine::createTransactionState(
@@ -910,7 +919,7 @@ arangodb::Result MMFilesEngine::persistCollection(
     return {};
   }
   VPackBuilder builder =
-      collection->toVelocyPackIgnore({"path", "statusString"}, true);
+      collection->toVelocyPackIgnore({"path", "statusString"}, true, false);
   VPackSlice const slice = builder.slice();
 
   auto cid = collection->cid();
@@ -1501,7 +1510,7 @@ void MMFilesEngine::dropIndex(TRI_vocbase_t* vocbase,
   int res = TRI_UnlinkFile(filename.c_str());
 
   if (res != TRI_ERROR_NO_ERROR) {
-    LOG_TOPIC(ERR, arangodb::Logger::FIXME)
+    LOG_TOPIC(DEBUG, arangodb::Logger::FIXME)
         << "cannot remove index definition in file '" << filename
         << "': " << TRI_errno_string(res);
   }
@@ -1594,30 +1603,6 @@ void MMFilesEngine::signalCleanup(TRI_vocbase_t* vocbase) {
 
   (*it).second->signal();
 }
-
-// iterate all documents of the underlying collection
-// this is called when a collection is openend, and all its documents need to be
-// added to
-// indexes etc.
-void MMFilesEngine::iterateDocuments(
-    TRI_voc_tick_t databaseId, TRI_voc_cid_t collectionId,
-    std::function<void(arangodb::velocypack::Slice const&)> const& cb) {}
-
-// adds a document to the storage engine
-// this will be called by the WAL collector when surviving documents are being
-// moved
-// into the storage engine's realm
-void MMFilesEngine::addDocumentRevision(
-    TRI_voc_tick_t databaseId, TRI_voc_cid_t collectionId,
-    arangodb::velocypack::Slice const& document) {}
-
-// removes a document from the storage engine
-// this will be called by the WAL collector when non-surviving documents are
-// being removed
-// from the storage engine's realm
-void MMFilesEngine::removeDocumentRevision(
-    TRI_voc_tick_t databaseId, TRI_voc_cid_t collectionId,
-    arangodb::velocypack::Slice const& document) {}
 
 /// @brief scans a collection and locates all files
 MMFilesEngineCollectionFiles MMFilesEngine::scanCollectionDirectory(
@@ -2263,7 +2248,7 @@ void MMFilesEngine::saveCollectionInfo(
   std::string const filename = collectionParametersFilename(vocbase->id(), id);
 
   VPackBuilder builder =
-      parameters->toVelocyPackIgnore({"path", "statusString"}, true);
+      parameters->toVelocyPackIgnore({"path", "statusString"}, true, false);
   TRI_ASSERT(id != 0);
 
   bool ok =
@@ -3339,4 +3324,106 @@ int MMFilesEngine::saveReplicationApplierConfiguration(TRI_vocbase_t* vocbase, a
   } 
   
   return TRI_ERROR_NO_ERROR;
+}
+
+int MMFilesEngine::handleSyncKeys(arangodb::InitialSyncer& syncer,
+                          arangodb::LogicalCollection* col,
+                          std::string const& keysId,
+                          std::string const& cid,
+                          std::string const& collectionName,
+                          TRI_voc_tick_t maxTick,
+                          std::string& errorMsg) {
+  return handleSyncKeysMMFiles(syncer, col, keysId, cid, collectionName,maxTick, errorMsg);
+}
+  
+Result MMFilesEngine::createLoggerState(TRI_vocbase_t* vocbase, VPackBuilder& builder){
+  MMFilesLogfileManagerState const s = MMFilesLogfileManager::instance()->state();
+  builder.openObject();  // Base
+  // "state" part
+  builder.add("state", VPackValue(VPackValueType::Object));  // open
+  builder.add("running", VPackValue(true));
+  builder.add("lastLogTick", VPackValue(std::to_string(s.lastCommittedTick)));
+  builder.add("lastUncommittedLogTick", VPackValue(std::to_string(s.lastAssignedTick)));
+  builder.add("totalEvents", VPackValue(static_cast<double>(s.numEvents + s.numEventsSync)));  // s.numEvents + s.numEventsSync
+  builder.add("time", VPackValue(s.timeString));
+  builder.close();
+
+  // "server" part
+  builder.add("server", VPackValue(VPackValueType::Object));  // open
+  builder.add("version", VPackValue(ARANGODB_VERSION));
+  builder.add("serverId", VPackValue(std::to_string(ServerIdFeature::getId())));
+  builder.close();
+
+  // "clients" part
+  builder.add("clients", VPackValue(VPackValueType::Array));  // open
+  if (vocbase != nullptr) {                                   // add clients
+    auto allClients = vocbase->getReplicationClients();
+    for (auto& it : allClients) {
+      // One client
+      builder.add(VPackValue(VPackValueType::Object));
+      builder.add("serverId", VPackValue(std::to_string(std::get<0>(it))));
+
+      char buffer[21];
+      TRI_GetTimeStampReplication(std::get<1>(it), &buffer[0], sizeof(buffer));
+      builder.add("time", VPackValue(buffer));
+
+      builder.add("lastServedTick",
+                  VPackValue(std::to_string(std::get<2>(it))));
+
+      builder.close();
+    }
+  }
+  builder.close();  // clients
+
+  builder.close();  // base
+
+  return Result();
+}
+
+Result MMFilesEngine::createTickRanges(VPackBuilder& builder){
+    auto const& ranges = MMFilesLogfileManager::instance()->ranges();
+    builder.openArray();
+    for (auto& it : ranges) {
+      builder.openObject();
+      //filename and state are already of type string
+      builder.add("datafile", VPackValue(it.filename));
+      builder.add("state", VPackValue(it.state));
+      builder.add("tickMin", VPackValue(std::to_string(it.tickMin)));
+      builder.add("tickMax", VPackValue(std::to_string(it.tickMax)));
+      builder.close();
+    }
+    builder.close();
+    return Result{};
+}
+
+Result MMFilesEngine::firstTick(uint64_t& tick){
+  auto const& ranges = MMFilesLogfileManager::instance()->ranges();
+  for (auto& it : ranges) {
+    if (it.tickMin == 0) {
+      continue;
+    }
+    if (it.tickMin < tick) {
+      tick = it.tickMin;
+    }
+  }
+  return Result{};
+};
+
+Result MMFilesEngine::lastLogger(TRI_vocbase_t* /*vocbase*/, std::shared_ptr<transaction::Context> transactionContext, uint64_t tickStart, uint64_t tickEnd,  std::shared_ptr<VPackBuilder>& builderSPtr) {
+  Result res{};
+  std::shared_ptr<transaction::StandaloneContext> scontext =
+    std::dynamic_pointer_cast<transaction::StandaloneContext>(transactionContext);
+  TRI_ASSERT(scontext);
+  MMFilesReplicationDumpContext dump(scontext, 0, true, 0);
+  int r = MMFilesDumpLogReplication(&dump, std::unordered_set<TRI_voc_tid_t>(),
+                                      0, tickStart, tickEnd, true);
+  if (r != TRI_ERROR_NO_ERROR) {
+    res.reset(r);
+    return res;
+  }
+  // parsing JSON
+  VPackParser parser;
+  parser.parse(dump._buffer->_buffer);
+  builderSPtr = parser.steal();
+  return res;
 }

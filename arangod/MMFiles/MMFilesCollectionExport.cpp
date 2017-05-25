@@ -25,21 +25,22 @@
 #include "Basics/WriteLocker.h"
 #include "MMFiles/MMFilesCollection.h"
 #include "MMFiles/MMFilesDitch.h"
+#include "MMFiles/MMFilesEngine.h"
 #include "StorageEngine/EngineSelectorFeature.h"
-#include "StorageEngine/StorageEngine.h"
+#include "StorageEngine/PhysicalCollection.h"
 #include "Utils/CollectionGuard.h"
 #include "Utils/SingleCollectionTransaction.h"
 #include "Transaction/StandaloneContext.h"
 #include "Transaction/Hints.h"
 #include "VocBase/LogicalCollection.h"
-#include "VocBase/PhysicalCollection.h"
+#include "VocBase/ManagedDocumentResult.h"
 #include "VocBase/vocbase.h"
 
 using namespace arangodb;
 
 MMFilesCollectionExport::MMFilesCollectionExport(TRI_vocbase_t* vocbase,
                                    std::string const& name,
-                                   Restrictions const& restrictions)
+                                   CollectionExport::Restrictions const& restrictions)
     : _collection(nullptr),
       _ditch(nullptr),
       _name(name),
@@ -60,7 +61,7 @@ MMFilesCollectionExport::~MMFilesCollectionExport() {
 }
 
 void MMFilesCollectionExport::run(uint64_t maxWaitTime, size_t limit) {
-  StorageEngine* engine = EngineSelectorFeature::ENGINE;
+  MMFilesEngine* engine = static_cast<MMFilesEngine*>(EngineSelectorFeature::ENGINE);
 
   // try to acquire the exclusive lock on the compaction
   engine->preventCompaction(_collection->vocbase(), [this](TRI_vocbase_t* vocbase) {
@@ -81,8 +82,9 @@ void MMFilesCollectionExport::run(uint64_t maxWaitTime, size_t limit) {
     uint64_t tries = 0;
     uint64_t const maxTries = maxWaitTime / SleepTime;
 
+    MMFilesCollection* mmColl = MMFilesCollection::toMMFilesCollection(_collection);
     while (++tries < maxTries) {
-      if (_collection->getPhysical()->isFullyCollected()) {
+      if (mmColl->isFullyCollected()) {
         break;
       }
       usleep(SleepTime);
@@ -109,14 +111,15 @@ void MMFilesCollectionExport::run(uint64_t maxWaitTime, size_t limit) {
       limit = maxDocuments;
     }
 
-    _vpack.reserve(limit);
+    _vpack.reserve(maxDocuments);
 
+    MMFilesCollection* mmColl = MMFilesCollection::toMMFilesCollection(_collection);
     ManagedDocumentResult mmdr;
-    trx.invokeOnAllElements(_collection->name(), [this, &limit, &trx, &mmdr](DocumentIdentifierToken const& token) {
+    trx.invokeOnAllElements(_collection->name(), [this, &limit, &trx, &mmdr, mmColl](DocumentIdentifierToken const& token) {
       if (limit == 0) {
         return false;
       }
-      if (_collection->readDocumentConditional(&trx, token, 0, mmdr)) {
+      if (mmColl->readDocumentConditional(&trx, token, 0, mmdr)) {
         _vpack.emplace_back(mmdr.vpack());
         --limit;
       }

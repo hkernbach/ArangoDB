@@ -20,9 +20,9 @@
 /// @author Jan Steemann
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "EngineSelectorFeature.h"
 #include "ApplicationFeatures/ApplicationServer.h"
 #include "Basics/FileUtils.h"
-#include "EngineSelectorFeature.h"
 #include "Logger/Logger.h"
 #include "MMFiles/MMFilesEngine.h"
 #include "ProgramOptions/ProgramOptions.h"
@@ -41,8 +41,9 @@ EngineSelectorFeature::EngineSelectorFeature(
     : ApplicationFeature(server, "EngineSelector"), _engine("auto") {
   setOptional(false);
   requiresElevatedPrivileges(false);
-  startsAfter("Logger");
   startsAfter("DatabasePath");
+  startsAfter("Greetings");
+  startsAfter("Logger");
 }
 
 void EngineSelectorFeature::collectOptions(std::shared_ptr<ProgramOptions> options) {
@@ -53,13 +54,6 @@ void EngineSelectorFeature::collectOptions(std::shared_ptr<ProgramOptions> optio
                      new DiscreteValuesParameter<StringParameter>(&_engine, availableEngineNames()));
 }
 
-void EngineSelectorFeature::validateOptions(std::shared_ptr<ProgramOptions> options) {
-  // engine from command line
-  if(_engine == "auto"){
-    _engine = MMFilesEngine::EngineName;
-  }
-}
-
 void EngineSelectorFeature::prepare() {
   // read engine from file in database_directory ENGINE (mmfiles/rocksdb)
   auto databasePathFeature = application_features::ApplicationServer::getFeature<DatabasePathFeature>("DatabasePath");
@@ -68,13 +62,25 @@ void EngineSelectorFeature::prepare() {
   LOG_TOPIC(DEBUG, Logger::STARTUP) << "looking for previously selected engine in file '" << _engineFilePath << "'";
 
   // file if engine in file does not match command-line option
-  if (basics::FileUtils::isRegularFile(_engineFilePath)){
-    std::string content = basics::FileUtils::slurp(_engineFilePath);
-    if (content != _engine) {
-      LOG_TOPIC(FATAL, Logger::STARTUP) << "engine selector - content of 'ENGINE' file and command-line option do not match: '" << content << "' != '" << _engine << "'";
+  if (basics::FileUtils::isRegularFile(_engineFilePath)) {
+    try {
+      std::string content = basics::FileUtils::slurp(_engineFilePath);
+      if (content != _engine && _engine != "auto") {
+        LOG_TOPIC(FATAL, Logger::STARTUP) << "content of 'ENGINE' file '" << _engineFilePath << "' and command-line/configuration option value do not match: '" << content << "' != '" << _engine << "'. please validate the command-line/configuration option value of '--server.storage-engine' or use a different database directory if the change is intentional";
+        FATAL_ERROR_EXIT();
+      }
+      _engine = content;
+    } catch (std::exception const& ex) {
+      LOG_TOPIC(FATAL, Logger::STARTUP) << "unable to read content of 'ENGINE' file '" << _engineFilePath << "': " << ex.what() << ". please make sure the file/directory is readable for the arangod process and user";
       FATAL_ERROR_EXIT();
     }
+  } else {
+    if (_engine == "auto") {
+      _engine = MMFilesEngine::EngineName;
+    }
   }
+
+  TRI_ASSERT(_engine != "auto");
 
   // deactivate all engines but the selected one
   for (auto const& engine : availableEngines()) {
@@ -99,12 +105,12 @@ void EngineSelectorFeature::prepare() {
 }
 
 void EngineSelectorFeature::start() {
-  //write engine File
-  if(!basics::FileUtils::isRegularFile(_engineFilePath)){
+  // write engine File
+  if (!basics::FileUtils::isRegularFile(_engineFilePath)) {
     try {
       basics::FileUtils::spit(_engineFilePath, _engine);
     } catch (std::exception const& ex) {
-      LOG_TOPIC(FATAL, Logger::STARTUP) << "engine selector - unable to write ENGINE file" << ex.what();
+      LOG_TOPIC(FATAL, Logger::STARTUP) << "unable to write 'ENGINE' file '" << _engineFilePath << "': " << ex.what() << ". please make sure the file/directory is writable for the arangod process and user";
       FATAL_ERROR_EXIT();
     }
   }

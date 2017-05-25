@@ -85,6 +85,7 @@ let optionsDocumentation = [
   '',
   '   - `extraArgs`: list of extra commandline arguments to add to arangod',
   '',
+  '   - `testFailureText`: filename of the testsummary file',
   '   - `verbose`: if set to true, be more verbose',
   '   - `extremeVerbosity`: if set to true, then there will be more test run',
   '     output, especially for cluster tests.',
@@ -135,7 +136,8 @@ const optionsDefaults = {
   'valgrindHosts': false,
   'verbose': false,
   'walFlushTimeout': 30000,
-  'writeXmlReport': true
+  'writeXmlReport': true,
+  'testFailureText': 'testfailures.txt'
 };
 
 const _ = require('lodash');
@@ -144,8 +146,6 @@ const yaml = require('js-yaml');
 
 const pu = require('@arangodb/process-utils');
 const cu = require('@arangodb/crash-utils');
-
-let GDB_OUTPUT = cu.GDB_OUTPUT;
 
 const BLUE = require('internal').COLORS.COLOR_BLUE;
 const CYAN = require('internal').COLORS.COLOR_CYAN;
@@ -198,7 +198,7 @@ function testCaseMessage (test) {
   }
 }
 
-function unitTestPrettyPrintResults (r, testOutputDirectory) {
+function unitTestPrettyPrintResults (r, testOutputDirectory, options) {
   function skipInternalMember (r, a) {
     return !r.hasOwnProperty(a) || internalMembers.indexOf(a) !== -1;
   }
@@ -209,6 +209,7 @@ function unitTestPrettyPrintResults (r, testOutputDirectory) {
   let failedSuite = 0;
   let failedTests = 0;
 
+  let onlyFailedMessages = '';
   let failedMessages = '';
   let SuccessMessages = '';
   try {
@@ -278,7 +279,9 @@ function unitTestPrettyPrintResults (r, testOutputDirectory) {
           }
         }
       } else {
-        failedMessages += '* Test "' + testrunName + '"\n';
+        let m = '* Test "' + testrunName + '"\n';
+        onlyFailedMessages += m;
+        failedMessages += m;
 
         for (let name in successCases) {
           if (!successCases.hasOwnProperty(name)) {
@@ -289,6 +292,7 @@ function unitTestPrettyPrintResults (r, testOutputDirectory) {
 
           if (details.skipped) {
             failedMessages += YELLOW + '    [SKIPPED] ' + name + RESET + '\n';
+            onlyFailedMessages += '    [SKIPPED] ' + name + '\n';
           } else {
             failedMessages += GREEN + '    [SUCCESS] ' + name + RESET + '\n';
           }
@@ -300,6 +304,7 @@ function unitTestPrettyPrintResults (r, testOutputDirectory) {
           }
 
           failedMessages += RED + '    [FAILED]  ' + name + RESET + '\n\n';
+          onlyFailedMessages += '    [FAILED]  ' + name + '\n\n';
 
           let details = failedCases[name];
 
@@ -311,8 +316,10 @@ function unitTestPrettyPrintResults (r, testOutputDirectory) {
 
             if (count > 0) {
               failedMessages += '\n';
+              onlyFailedMessages += '\n';
             }
             failedMessages += RED + '      "' + one + '" failed: ' + details[one] + RESET + '\n';
+            onlyFailedMessages += '      "' + one + '" failed: ' + details[one] + '\n';
             count++;
           }
         }
@@ -320,20 +327,25 @@ function unitTestPrettyPrintResults (r, testOutputDirectory) {
     }
     print(SuccessMessages);
     print(failedMessages);
-    fs.write(testOutputDirectory + 'testfailures.txt', failedMessages);
-    fs.write(testOutputDirectory + 'testfailures.txt', GDB_OUTPUT);
     /* jshint forin: true */
 
     let color = (!r.crashed && r.status === true) ? GREEN : RED;
     let crashText = '';
+    let crashedText = '';
     if (r.crashed === true) {
-      crashText = RED + ' BUT! - We had at least one unclean shutdown or crash during the testrun.' + RESET;
+      crashedText = ' BUT! - We had at least one unclean shutdown or crash during the testrun.';
+      crashText = RED + crashedText + RESET;
     }
     print('\n' + color + '* Overall state: ' + ((r.status === true) ? 'Success' : 'Fail') + RESET + crashText);
 
+    let failText = '';
     if (r.status !== true) {
-      print(color + '   Suites failed: ' + failedSuite + ' Tests Failed: ' + failedTests + RESET);
+      failText = '   Suites failed: ' + failedSuite + ' Tests Failed: ' + failedTests;
+      print(color + failText + RESET);
     }
+
+    failedMessages = onlyFailedMessages + crashedText + cu.GDB_OUTPUT + failText + '\n';
+    fs.write(testOutputDirectory + options.testFailureText, failedMessages);
   } catch (x) {
     print('exception caught while pretty printing result: ');
     print(x.message);
@@ -505,17 +517,19 @@ function unitTest (cases, options) {
       pu.cleanupDBDirectories(options);
     } else {
       print('not cleaning up as some tests weren\'t successful:\n' +
-            pu.getCleanupDBDirectories);
+            pu.getCleanupDBDirectories());
     }
   } else {
     print("not cleaning up since we didn't start the server ourselves\n");
   }
 
-  try {
-    yaml.safeDump(JSON.parse(JSON.stringify(results)));
-  } catch (err) {
-    print(RED + 'cannot dump results: ' + String(err) + RESET);
-    print(RED + require('internal').inspect(results) + RESET);
+  if (options.extremeVerbosity === true) {
+    try {
+      print(yaml.safeDump(JSON.parse(JSON.stringify(results))));
+    } catch (err) {
+      print(RED + 'cannot dump results: ' + String(err) + RESET);
+      print(RED + require('internal').inspect(results) + RESET);
+    }
   }
 
   if (jsonReply === true) {

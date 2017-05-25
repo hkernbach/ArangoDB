@@ -21,20 +21,20 @@
 /// @author Dr. Frank Celler
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "v8-replication.h"
 #include "Basics/ReadLocker.h"
 #include "Cluster/ClusterComm.h"
 #include "Cluster/ClusterFeature.h"
-#include "MMFiles/MMFilesLogfileManager.h"
-#include "MMFiles/mmfiles-replication-dump.h"
 #include "Replication/InitialSyncer.h"
 #include "Rest/Version.h"
 #include "RestServer/ServerIdFeature.h"
+#include "StorageEngine/EngineSelectorFeature.h"
+#include "StorageEngine/StorageEngine.h"
 #include "V8/v8-conv.h"
 #include "V8/v8-globals.h"
 #include "V8/v8-utils.h"
 #include "V8/v8-vpack.h"
 #include "V8Server/v8-vocbaseprivate.h"
+#include "v8-replication.h"
 
 #include <velocypack/Builder.h>
 #include <velocypack/Parser.h>
@@ -51,32 +51,22 @@ using namespace arangodb::rest;
 
 static void JS_StateLoggerReplication(
     v8::FunctionCallbackInfo<v8::Value> const& args) {
+  // FIXME: use code in RestReplicationHandler and get rid of storage-engine
+  //        depended code here
+  //        
   TRI_V8_TRY_CATCH_BEGIN(isolate);
   v8::HandleScope scope(isolate);
 
-  MMFilesLogfileManagerState const s =
-      MMFilesLogfileManager::instance()->state();
-
+  StorageEngine* engine = EngineSelectorFeature::ENGINE;
   v8::Handle<v8::Object> result = v8::Object::New(isolate);
 
-  v8::Handle<v8::Object> state = v8::Object::New(isolate);
-  state->Set(TRI_V8_ASCII_STRING("running"), v8::True(isolate));
-  state->Set(TRI_V8_ASCII_STRING("lastLogTick"), TRI_V8UInt64String<TRI_voc_tick_t>(isolate, s.lastCommittedTick));
-  state->Set(TRI_V8_ASCII_STRING("lastUncommittedLogTick"), TRI_V8UInt64String<TRI_voc_tick_t>(isolate, s.lastAssignedTick));
-  state->Set(TRI_V8_ASCII_STRING("totalEvents"),
-             v8::Number::New(isolate, static_cast<double>(s.numEvents + s.numEventsSync)));
-  state->Set(TRI_V8_ASCII_STRING("time"), TRI_V8_STD_STRING(s.timeString));
-  result->Set(TRI_V8_ASCII_STRING("state"), state);
-
-  v8::Handle<v8::Object> server = v8::Object::New(isolate);
-  server->Set(TRI_V8_ASCII_STRING("version"),
-              TRI_V8_ASCII_STRING(ARANGODB_VERSION));
-  server->Set(TRI_V8_ASCII_STRING("serverId"),
-              TRI_V8_STD_STRING(StringUtils::itoa(ServerIdFeature::getId())));
-  result->Set(TRI_V8_ASCII_STRING("server"), server);
-
-  v8::Handle<v8::Object> clients = v8::Object::New(isolate);
-  result->Set(TRI_V8_ASCII_STRING("clients"), clients);
+  VPackBuilder builder;
+  auto res = engine->createLoggerState(nullptr,builder);
+  if(res.fail()){
+    TRI_V8_THROW_EXCEPTION(res);
+  }
+  v8::Handle<v8::Value>resultValue = TRI_VPackToV8(isolate, builder.slice());
+  result = v8::Handle<v8::Object>::Cast(resultValue);
 
   TRI_V8_RETURN(result);
   TRI_V8_TRY_CATCH_END
@@ -90,23 +80,16 @@ static void JS_TickRangesLoggerReplication(
     v8::FunctionCallbackInfo<v8::Value> const& args) {
   TRI_V8_TRY_CATCH_BEGIN(isolate);
   v8::HandleScope scope(isolate);
+  v8::Handle<v8::Array> result;
 
-  auto const& ranges = MMFilesLogfileManager::instance()->ranges();
+  VPackBuilder builder;
+  Result res = EngineSelectorFeature::ENGINE->createTickRanges(builder);
+  if(res.fail()){
+    TRI_V8_THROW_EXCEPTION(res);
+   }
 
-  v8::Handle<v8::Array> result = v8::Array::New(isolate, (int)ranges.size());
-  uint32_t i = 0;
-
-  for (auto& it : ranges) {
-    v8::Handle<v8::Object> df = v8::Object::New(isolate);
-
-    df->ForceSet(TRI_V8_ASCII_STRING("datafile"),
-                 TRI_V8_STD_STRING(it.filename));
-    df->ForceSet(TRI_V8_ASCII_STRING("state"), TRI_V8_STD_STRING(it.state));
-    df->ForceSet(TRI_V8_ASCII_STRING("tickMin"), TRI_V8UInt64String<TRI_voc_tick_t>(isolate, it.tickMin));
-    df->ForceSet(TRI_V8_ASCII_STRING("tickMax"), TRI_V8UInt64String<TRI_voc_tick_t>(isolate, it.tickMax));
-
-    result->Set(i++, df);
-  }
+  v8::Handle<v8::Value>resultValue = TRI_VPackToV8(isolate, builder.slice());
+  result = v8::Handle<v8::Array>::Cast(resultValue);
 
   TRI_V8_RETURN(result);
   TRI_V8_TRY_CATCH_END
@@ -121,24 +104,16 @@ static void JS_FirstTickLoggerReplication(
   TRI_V8_TRY_CATCH_BEGIN(isolate);
   v8::HandleScope scope(isolate);
 
-  auto const& ranges = MMFilesLogfileManager::instance()->ranges();
-
   TRI_voc_tick_t tick = UINT64_MAX;
-
-  for (auto& it : ranges) {
-    if (it.tickMin == 0) {
-      continue;
-    }
-
-    if (it.tickMin < tick) {
-      tick = it.tickMin;
-    }
+  Result res  = EngineSelectorFeature::ENGINE->firstTick(tick);
+  if(res.fail()){
+    TRI_V8_THROW_EXCEPTION(res);
   }
 
   if (tick == UINT64_MAX) {
     TRI_V8_RETURN(v8::Null(isolate));
   }
-
+  
   TRI_V8_RETURN(TRI_V8UInt64String<TRI_voc_tick_t>(isolate, tick));
   TRI_V8_TRY_CATCH_END
 }
@@ -147,8 +122,7 @@ static void JS_FirstTickLoggerReplication(
 /// @brief get the last WAL entries
 ////////////////////////////////////////////////////////////////////////////////
 
-static void JS_LastLoggerReplication(
-    v8::FunctionCallbackInfo<v8::Value> const& args) {
+static void JS_LastLoggerReplication( v8::FunctionCallbackInfo<v8::Value> const& args) {
   TRI_V8_TRY_CATCH_BEGIN(isolate);
   v8::HandleScope scope(isolate);
 
@@ -159,29 +133,28 @@ static void JS_LastLoggerReplication(
   }
 
   if (args.Length() != 2) {
-    TRI_V8_THROW_EXCEPTION_USAGE(
-        "REPLICATION_LOGGER_LAST(<fromTick>, <toTick>)");
+    TRI_V8_THROW_EXCEPTION_USAGE("REPLICATION_LOGGER_LAST(<fromTick>, <toTick>)");
   }
-    
-  auto transactionContext = std::make_shared<transaction::StandaloneContext>(vocbase);
 
-  MMFilesReplicationDumpContext dump(transactionContext, 0, true, 0);
   TRI_voc_tick_t tickStart = TRI_ObjectToUInt64(args[0], true);
   TRI_voc_tick_t tickEnd = TRI_ObjectToUInt64(args[1], true);
+  if (tickEnd <= tickStart) {
+    TRI_V8_THROW_EXCEPTION_USAGE("tickStart < tickEnd");
+  }
 
-  int res = MMFilesDumpLogReplication(&dump, std::unordered_set<TRI_voc_tid_t>(),
-                                   0, tickStart, tickEnd, true);
+  auto transactionContext = transaction::StandaloneContext::Create(vocbase);
+  auto builderSPtr = std::make_shared<VPackBuilder>();
+  Result res = EngineSelectorFeature::ENGINE->lastLogger(
+    vocbase, transactionContext, tickStart, tickEnd, builderSPtr);
 
-  if (res != TRI_ERROR_NO_ERROR) {
+  v8::Handle<v8::Value> result;
+  if(res.fail()){
+    result = v8::Null(isolate);
     TRI_V8_THROW_EXCEPTION(res);
   }
 
-  VPackParser parser;
-  parser.parse(dump._buffer->_buffer);
- 
-  std::shared_ptr<VPackBuilder> builder = parser.steal();
-
-  v8::Handle<v8::Value> result = TRI_VPackToV8(isolate, builder->slice());
+  result = TRI_VPackToV8(isolate, builderSPtr->slice(),
+                         transactionContext->getVPackOptions());
 
   TRI_V8_RETURN(result);
   TRI_V8_TRY_CATCH_END

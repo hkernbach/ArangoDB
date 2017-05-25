@@ -29,6 +29,7 @@ const fs = require('fs');
 const yaml = require('js-yaml');
 const executeExternalAndWait = require('internal').executeExternalAndWait;
 const statusExternal = require('internal').statusExternal;
+const sleep = require('internal').sleep;
 
 let GDB_OUTPUT = '';
 
@@ -77,9 +78,19 @@ function analyzeCoreDump (instanceInfo, options, storeArangodPath, pid) {
   const args = ['-c', command];
   print(JSON.stringify(args));
 
+  sleep(5);
   executeExternalAndWait('/bin/bash', args);
   GDB_OUTPUT = fs.read(gdbOutputFile);
   print(GDB_OUTPUT);
+
+  command = 'gdb ' + storeArangodPath + ' ';
+
+  if (options.coreDirectory === '') {
+    command += 'core';
+  } else {
+    command += options.coreDirectory;
+  }
+  return command;
 }
 
 // //////////////////////////////////////////////////////////////////////////////
@@ -109,9 +120,11 @@ function analyzeCoreDumpMac (instanceInfo, options, storeArangodPath, pid) {
   const args = ['-c', command];
   print(JSON.stringify(args));
 
+  sleep(5);
   executeExternalAndWait('/bin/bash', args);
   GDB_OUTPUT = fs.read(lldbOutputFile);
   print(GDB_OUTPUT);
+  return 'lldb ' + storeArangodPath + ' -c /cores/core.' + pid;
 }
 
 // //////////////////////////////////////////////////////////////////////////////
@@ -142,8 +155,11 @@ function analyzeCoreDumpWindows (instanceInfo) {
     dbgCmds.join('; ')
   ];
 
+  sleep(5);
   print('running cdb ' + JSON.stringify(args));
   executeExternalAndWait('cdb', args);
+
+  return 'cdb ' + args.join(' ');
 }
 
 // //////////////////////////////////////////////////////////////////////////////
@@ -189,24 +205,19 @@ function analyzeCrash (binary, arangod, options, checkStr) {
     yaml.safeDump(arangod) +
     'marking build as crashy.' + RESET);
 
-  let corePath = (options.coreDirectory === '')
-      ? 'core'
-      : options.coreDirectory;
-
-  arangod.exitStatus.gdbHint = 'Run debugger with "gdb ' +
-    storeArangodPath + ' ' + corePath;
-
+  let hint = '';
   if (platform.substr(0, 3) === 'win') {
     // Windows: wait for procdump to do its job...
     statusExternal(arangod.monitor, true);
-    analyzeCoreDumpWindows(arangod);
+    hint = analyzeCoreDumpWindows(arangod);
   } else if (platform === 'darwin') {
     fs.copyFile(binary, storeArangodPath);
-    analyzeCoreDumpMac(arangod, options, storeArangodPath, arangod.pid);
+    hint = analyzeCoreDumpMac(arangod, options, storeArangodPath, arangod.pid);
   } else {
     fs.copyFile(binary, storeArangodPath);
-    analyzeCoreDump(arangod, options, storeArangodPath, arangod.pid);
+    hint = analyzeCoreDump(arangod, options, storeArangodPath, arangod.pid);
   }
+  arangod.exitStatus.gdbHint = 'Run debugger with "' + hint + '"';
 
   print(RESET);
 }

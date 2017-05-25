@@ -27,13 +27,9 @@
 #include "Basics/ConditionLocker.h"
 #include "Basics/MutexLocker.h"
 #include "Endpoint/EndpointList.h"
-#include "GeneralServer/AsyncJobManager.h"
+#include "GeneralServer/GeneralDefinitions.h"
 #include "GeneralServer/GeneralListenTask.h"
-#include "GeneralServer/RestHandler.h"
 #include "Logger/Logger.h"
-#include "Rest/CommonDefines.h"
-#include "Rest/GeneralResponse.h"
-#include "Scheduler/ListenTask.h"
 #include "Scheduler/Scheduler.h"
 #include "Scheduler/SchedulerFeature.h"
 #include "Scheduler/Task.h"
@@ -47,9 +43,7 @@ using namespace arangodb::rest;
 // -----------------------------------------------------------------------------
 
 GeneralServer::~GeneralServer() {
-  for (auto& task : _listenTasks) {
-    delete task;
-  }
+  _listenTasks.clear();
 }
 
 // -----------------------------------------------------------------------------
@@ -92,28 +86,18 @@ void GeneralServer::stopListening() {
 bool GeneralServer::openEndpoint(Endpoint* endpoint) {
   ProtocolType protocolType;
 
-  if (endpoint->transport() == Endpoint::TransportType::HTTP) {
-    if (endpoint->encryption() == Endpoint::EncryptionType::SSL) {
-      protocolType = ProtocolType::HTTPS;
-    } else {
-      protocolType = ProtocolType::HTTP;
-    }
+  if (endpoint->encryption() == Endpoint::EncryptionType::SSL) {
+    protocolType = ProtocolType::HTTPS;
   } else {
-    if (endpoint->encryption() == Endpoint::EncryptionType::SSL) {
-      protocolType = ProtocolType::VPPS;
-    } else {
-      protocolType = ProtocolType::VPP;
-    }
+    protocolType = ProtocolType::HTTP;
   }
 
   std::unique_ptr<ListenTask> task(new GeneralListenTask(
       SchedulerFeature::SCHEDULER->eventLoop(), this, endpoint, protocolType));
-  task->start();
-
-  if (!task->isBound()) {
+  if (!task->start()) {
     return false;
   }
 
-  _listenTasks.emplace_back(task.release());
+  _listenTasks.emplace_back(std::move(task));
   return true;
 }

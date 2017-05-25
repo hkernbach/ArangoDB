@@ -26,20 +26,25 @@
 #define ARANGO_ROCKSDB_ROCKSDB_KEY_BOUNDS_H 1
 
 #include "Basics/Common.h"
+#include "Basics/StringRef.h"
 #include "RocksDBEngine/RocksDBTypes.h"
 #include "VocBase/vocbase.h"
 
 #include <rocksdb/slice.h>
-
 #include <velocypack/Slice.h>
 #include <velocypack/velocypack-aliases.h>
+
+#include <iosfwd>
 
 namespace arangodb {
 
 class RocksDBKeyBounds {
  public:
-  RocksDBKeyBounds() = delete;
-  
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief empty bounds
+  //////////////////////////////////////////////////////////////////////////////
+  static RocksDBKeyBounds Empty();
+
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Bounds for list of all databases
   //////////////////////////////////////////////////////////////////////////////
@@ -51,24 +56,13 @@ class RocksDBKeyBounds {
   static RocksDBKeyBounds DatabaseCollections(TRI_voc_tick_t databaseId);
 
   //////////////////////////////////////////////////////////////////////////////
-  /// @brief Bounds for all collections belonging to a specified database
-  //////////////////////////////////////////////////////////////////////////////
-  static RocksDBKeyBounds DatabaseIndexes(TRI_voc_tick_t databaseId,
-                                          TRI_voc_cid_t cid);
-
-  //////////////////////////////////////////////////////////////////////////////
-  /// @brief Bounds for all indexes belonging to a specified collection
-  //////////////////////////////////////////////////////////////////////////////
-  static RocksDBKeyBounds CollectionIndexes(TRI_voc_tick_t databaseId,
-                                            TRI_voc_cid_t collectionId);
-
-  //////////////////////////////////////////////////////////////////////////////
   /// @brief Bounds for all documents belonging to a specified collection
   //////////////////////////////////////////////////////////////////////////////
-  static RocksDBKeyBounds CollectionDocuments(uint64_t collectionId);
+  static RocksDBKeyBounds CollectionDocuments(uint64_t collectionObjectId);
 
   //////////////////////////////////////////////////////////////////////////////
-  /// @brief Bounds for all index-entries- belonging to a specified primary index
+  /// @brief Bounds for all index-entries- belonging to a specified primary
+  /// index
   //////////////////////////////////////////////////////////////////////////////
   static RocksDBKeyBounds PrimaryIndex(uint64_t indexId);
 
@@ -78,14 +72,15 @@ class RocksDBKeyBounds {
   static RocksDBKeyBounds EdgeIndex(uint64_t indexId);
 
   //////////////////////////////////////////////////////////////////////////////
-  /// @brief Bounds for all index-entries belonging to a specified edge index related
-  /// to the specified vertex
+  /// @brief Bounds for all index-entries belonging to a specified edge index
+  /// related to the specified vertex
   //////////////////////////////////////////////////////////////////////////////
   static RocksDBKeyBounds EdgeIndexVertex(uint64_t indexId,
-                                          std::string const& vertexId);
+                                          arangodb::StringRef const& vertexId);
 
   //////////////////////////////////////////////////////////////////////////////
-  /// @brief Bounds for all index-entries belonging to a specified non-unique index
+  /// @brief Bounds for all index-entries belonging to a specified non-unique
+  /// index
   //////////////////////////////////////////////////////////////////////////////
   static RocksDBKeyBounds IndexEntries(uint64_t indexId);
 
@@ -93,6 +88,17 @@ class RocksDBKeyBounds {
   /// @brief Bounds for all entries belonging to a specified unique index
   //////////////////////////////////////////////////////////////////////////////
   static RocksDBKeyBounds UniqueIndex(uint64_t indexId);
+
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief Bounds for all entries of a fulltext index
+  //////////////////////////////////////////////////////////////////////////////
+  static RocksDBKeyBounds FulltextIndex(uint64_t indexId);
+
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief Bounds for all entries belonging to a specified unique index
+  //////////////////////////////////////////////////////////////////////////////
+  static RocksDBKeyBounds GeoIndex(uint64_t indexId);
+  static RocksDBKeyBounds GeoIndex(uint64_t indexId, bool isSlot);
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Bounds for all index-entries within a value range belonging to a
@@ -113,20 +119,46 @@ class RocksDBKeyBounds {
   /// @brief Bounds for all views belonging to a specified database
   //////////////////////////////////////////////////////////////////////////////
   static RocksDBKeyBounds DatabaseViews(TRI_voc_tick_t databaseId);
-  
+
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Bounds for all counter values
   //////////////////////////////////////////////////////////////////////////////
   static RocksDBKeyBounds CounterValues();
 
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief Bounds for all index estimate values
+  //////////////////////////////////////////////////////////////////////////////
+  static RocksDBKeyBounds IndexEstimateValues();
+
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief Bounds for all entries of a fulltext index, matching prefixes
+  //////////////////////////////////////////////////////////////////////////////
+  static RocksDBKeyBounds FulltextIndexPrefix(uint64_t,
+                                              arangodb::StringRef const&);
+
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief Bounds for all entries of a fulltext index, matching the word
+  //////////////////////////////////////////////////////////////////////////////
+  static RocksDBKeyBounds FulltextIndexComplete(uint64_t,
+                                                arangodb::StringRef const&);
+
  public:
+  RocksDBKeyBounds(RocksDBKeyBounds const& other);
+  RocksDBKeyBounds(RocksDBKeyBounds&& other);
+  RocksDBKeyBounds& operator=(RocksDBKeyBounds const& other);
+  RocksDBKeyBounds& operator=(RocksDBKeyBounds&& other);
+  
+  RocksDBEntryType type() const { return _type; }
+
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Returns the left bound slice.
   ///
   /// Forward iterators may use it->Seek(bound.start()) and reverse iterators
   /// may check that the current key is greater than this value.
   //////////////////////////////////////////////////////////////////////////////
-  rocksdb::Slice const start() const;
+  rocksdb::Slice start() const {
+    return _internals.start();
+  }
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Returns the right bound slice.
@@ -134,25 +166,110 @@ class RocksDBKeyBounds {
   /// Reverse iterators may use it->SeekForPrev(bound.end()) and forward
   /// iterators may check that the current key is less than this value.
   //////////////////////////////////////////////////////////////////////////////
-  rocksdb::Slice const end() const;
+  rocksdb::Slice end() const {
+    return _internals.end();
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  /// @brief Returns the object ID for these bounds
+  ///
+  /// This method is only valid for certain types of bounds: Documents and
+  /// Index entries.
+  //////////////////////////////////////////////////////////////////////////////
+  uint64_t objectId() const;
 
  private:
-  RocksDBKeyBounds(RocksDBEntryType type);
+  RocksDBKeyBounds();
+  explicit RocksDBKeyBounds(RocksDBEntryType type);
   RocksDBKeyBounds(RocksDBEntryType type, uint64_t first);
-  RocksDBKeyBounds(RocksDBEntryType type, uint64_t first, uint64_t second);
   RocksDBKeyBounds(RocksDBEntryType type, uint64_t first,
-                   std::string const& second);
+                   arangodb::StringRef const& second);
   RocksDBKeyBounds(RocksDBEntryType type, uint64_t first,
                    VPackSlice const& second, VPackSlice const& third);
 
-  void nextPrefix(std::string& s);
-
  private:
+  // private class that will hold both bounds in a single buffer (with only one allocation)
+  class BoundsBuffer {
+   friend class RocksDBKeyBounds;
+
+   public: 
+    BoundsBuffer() : _separatorPosition(0) {}
+    
+    BoundsBuffer(BoundsBuffer const& other) 
+        : _buffer(other._buffer), _separatorPosition(other._separatorPosition) {
+    }
+
+    BoundsBuffer(BoundsBuffer&& other) 
+        : _buffer(std::move(other._buffer)), _separatorPosition(other._separatorPosition) {
+      other._separatorPosition = 0;
+    }
+
+    BoundsBuffer& operator=(BoundsBuffer const& other) {
+      if (this != &other) {
+        _buffer = other._buffer;
+        _separatorPosition = other._separatorPosition;
+      }
+      return *this;
+    }
+
+    BoundsBuffer& operator=(BoundsBuffer&& other) {
+      if (this != &other) {
+        _buffer = std::move(other._buffer);
+        _separatorPosition = other._separatorPosition;
+        other._separatorPosition = 0;
+      }
+      return *this;
+    }
+
+    // reserve space for bounds
+    void reserve(size_t length) { 
+      TRI_ASSERT(_separatorPosition == 0);
+      TRI_ASSERT(_buffer.empty());
+      _buffer.reserve(length); 
+    }
+   
+    // mark the end of the start buffer
+    void separate() {
+      TRI_ASSERT(_separatorPosition == 0);
+      TRI_ASSERT(!_buffer.empty());
+      _separatorPosition = _buffer.size();
+    }
+
+    // append a character
+    void push_back(char c) {
+      _buffer.push_back(c);
+    }
+    
+    // return the internal buffer for modification or reading
+    std::string& buffer() { return _buffer; }
+    std::string const& buffer() const { return _buffer; }
+
+    // return a slice to the start buffer
+    rocksdb::Slice start() const {
+      TRI_ASSERT(_separatorPosition != 0);
+      return rocksdb::Slice(_buffer.data(), _separatorPosition);
+    }
+
+    // return a slice to the end buffer
+    rocksdb::Slice end() const {
+      TRI_ASSERT(_separatorPosition != 0);
+      return rocksdb::Slice(_buffer.data() + _separatorPosition, _buffer.size() - _separatorPosition);
+    }
+
+   private:
+    std::string _buffer;
+    size_t _separatorPosition;
+  };
+
+  BoundsBuffer& internals() { return _internals; }
+  BoundsBuffer const& internals() const { return _internals; }
+
   static const char _stringSeparator;
   RocksDBEntryType _type;
-  std::string _startBuffer;
-  std::string _endBuffer;
+  BoundsBuffer _internals;
 };
+
+std::ostream& operator<<(std::ostream&, RocksDBKeyBounds const&);
 
 }  // namespace arangodb
 

@@ -47,14 +47,16 @@ namespace cache {
 struct PlainBucket {
   State _state;
 
+  uint32_t _paddingExplicit; // fill 4-byte gap for alignment purposes
+
   // actual cached entries
-  static constexpr size_t slotsData = 5;
+  static constexpr size_t slotsData = 10;
   uint32_t _cachedHashes[slotsData];
   CachedValue* _cachedData[slotsData];
 
 // padding, if necessary?
 #ifdef TRI_PADDING_32
-  uint32_t _padding[3];
+  uint32_t _padding[slotsData];
 #endif
 
   //////////////////////////////////////////////////////////////////////////////

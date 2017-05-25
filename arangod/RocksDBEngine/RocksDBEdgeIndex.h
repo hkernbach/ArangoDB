@@ -27,16 +27,21 @@
 #include "Basics/Common.h"
 #include "Indexes/Index.h"
 #include "Indexes/IndexIterator.h"
+#include "RocksDBEngine/RocksDBCuckooIndexEstimator.h"
 #include "RocksDBEngine/RocksDBIndex.h"
 #include "RocksDBEngine/RocksDBKey.h"
 #include "RocksDBEngine/RocksDBKeyBounds.h"
+#include "RocksDBEngine/RocksDBToken.h"
 #include "VocBase/voc-types.h"
 #include "VocBase/vocbase.h"
 
 #include <velocypack/Iterator.h>
 #include <velocypack/Slice.h>
 
-namespace rocksdb {class TransactionDB; class Iterator;}
+namespace rocksdb {
+class TransactionDB;
+class Iterator;
+}  // namespace rocksdb
 
 namespace arangodb {
 class RocksDBEdgeIndex;
@@ -47,34 +52,44 @@ class RocksDBEdgeIndexIterator final : public IndexIterator {
                            transaction::Methods* trx,
                            ManagedDocumentResult* mmdr,
                            arangodb::RocksDBEdgeIndex const* index,
-                           std::unique_ptr<VPackBuilder>& keys);
-
+                           std::unique_ptr<VPackBuilder>& keys, cache::Cache*);
   ~RocksDBEdgeIndexIterator();
-
   char const* typeName() const override { return "edge-index-iterator"; }
-
   bool next(TokenCallback const& cb, size_t limit) override;
-
   void reset() override;
 
  private:
-  bool updateBounds();
-  
+  void resizeMemory();
+  void reserveInplaceMemory(uint64_t count);
+  uint64_t valueLength() const;
+  void resetInplaceMemory();
+  arangodb::StringRef getFromToFromIterator(
+      arangodb::velocypack::ArrayIterator const&);
+  void lookupInRocksDB(StringRef edgeKey);
+
   std::unique_ptr<arangodb::velocypack::Builder> _keys;
   arangodb::velocypack::ArrayIterator _keysIterator;
   RocksDBEdgeIndex const* _index;
-  std::unique_ptr<rocksdb::Iterator> _iterator;
+
+  // the following 2 values are required for correct batch handling
+  std::unique_ptr<rocksdb::Iterator> _iterator;  // iterator position in rocksdb
   RocksDBKeyBounds _bounds;
+  cache::Cache* _cache;
+  uint64_t _posInMemory;
+  uint64_t _memSize;
+  uint64_t* _inplaceMemory;
 };
 
 class RocksDBEdgeIndex final : public RocksDBIndex {
   friend class RocksDBEdgeIndexIterator;
 
  public:
+  static uint64_t HashForKey(const rocksdb::Slice& key);
+
   RocksDBEdgeIndex() = delete;
 
   RocksDBEdgeIndex(TRI_idx_iid_t, arangodb::LogicalCollection*,
-                   std::string const&);
+                   velocypack::Slice const& info, std::string const&);
 
   ~RocksDBEdgeIndex();
 
@@ -95,20 +110,26 @@ class RocksDBEdgeIndex final : public RocksDBIndex {
 
   size_t memory() const override;
 
-  void toVelocyPack(VPackBuilder&, bool) const override;
-
-  void toVelocyPackFigures(VPackBuilder&) const override;
+  void toVelocyPack(VPackBuilder&, bool, bool) const override;
 
   int insert(transaction::Methods*, TRI_voc_rid_t,
              arangodb::velocypack::Slice const&, bool isRollback) override;
 
+  int insertRaw(RocksDBMethods*, TRI_voc_rid_t, VPackSlice const&) override;
+
   int remove(transaction::Methods*, TRI_voc_rid_t,
              arangodb::velocypack::Slice const&, bool isRollback) override;
 
+  /// optimization for truncateNoTrx, never called in fillIndex
+  int removeRaw(RocksDBMethods*, TRI_voc_rid_t,
+                arangodb::velocypack::Slice const&) override;
+
+  Result postprocessRemove(transaction::Methods* trx, rocksdb::Slice const& key,
+                           rocksdb::Slice const& value) override;
   void batchInsert(
       transaction::Methods*,
       std::vector<std::pair<TRI_voc_rid_t, arangodb::velocypack::Slice>> const&,
-      arangodb::basics::LocalTaskQueue* queue = nullptr) override;
+      std::shared_ptr<arangodb::basics::LocalTaskQueue> queue) override;
 
   int drop() override;
 
@@ -132,6 +153,13 @@ class RocksDBEdgeIndex final : public RocksDBIndex {
   ///        entries.
   void expandInSearchValues(arangodb::velocypack::Slice const,
                             arangodb::velocypack::Builder&) const override;
+  int cleanup() override;
+
+  void serializeEstimate(std::string& output) const override;
+
+  bool deserializeEstimate(arangodb::RocksDBCounterManager* mgr) override;
+
+  void recalculateEstimates() override;
 
  private:
   /// @brief create the iterator
@@ -148,7 +176,12 @@ class RocksDBEdgeIndex final : public RocksDBIndex {
                      arangodb::aql::AstNode const* valNode) const;
 
   std::string _directionAttr;
+
+  /// @brief A fixed size library to estimate the selectivity of the index.
+  /// On insertion of a document we have to insert it into the estimator,
+  /// On removal we have to remove it in the estimator as well.
+  std::unique_ptr<RocksDBCuckooIndexEstimator<uint64_t>> _estimator;
 };
-}
+}  // namespace arangodb
 
 #endif

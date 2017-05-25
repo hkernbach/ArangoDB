@@ -25,12 +25,15 @@
 #include "Basics/StaticStrings.h"
 #include "Basics/StringUtils.h"
 #include "Basics/VelocyPackHelper.h"
+#include "Cluster/ServerState.h"
 #include "Indexes/Index.h"
 #include "RocksDBEngine/RocksDBEdgeIndex.h"
 #include "RocksDBEngine/RocksDBEngine.h"
-#include "RocksDBEngine/RocksDBPrimaryIndex.h"
-#include "RocksDBEngine/RocksDBPersistentIndex.h"
+#include "RocksDBEngine/RocksDBFulltextIndex.h"
+#include "RocksDBEngine/RocksDBGeoIndex.h"
 #include "RocksDBEngine/RocksDBHashIndex.h"
+#include "RocksDBEngine/RocksDBPersistentIndex.h"
+#include "RocksDBEngine/RocksDBPrimaryIndex.h"
 #include "RocksDBEngine/RocksDBSkiplistIndex.h"
 #include "StorageEngine/EngineSelectorFeature.h"
 #include "VocBase/ticks.h"
@@ -152,7 +155,7 @@ static int EnhanceJsonIndexSkiplist(VPackSlice const definition,
 ////////////////////////////////////////////////////////////////////////////////
 
 static int EnhanceJsonIndexPersistent(VPackSlice const definition,
-                                    VPackBuilder& builder, bool create) {
+                                      VPackBuilder& builder, bool create) {
   int res = ProcessIndexFields(definition, builder, 0, create);
   if (res == TRI_ERROR_NO_ERROR) {
     ProcessIndexSparseFlag(definition, builder, create);
@@ -210,9 +213,31 @@ static int EnhanceJsonIndexGeo2(VPackSlice const definition,
   return res;
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief enhances the json of a fulltext index
+////////////////////////////////////////////////////////////////////////////////
+
+static int EnhanceJsonIndexFulltext(VPackSlice const definition,
+                                    VPackBuilder& builder, bool create) {
+  int res = ProcessIndexFields(definition, builder, 1, create);
+  if (res == TRI_ERROR_NO_ERROR) {
+    // handle "minLength" attribute
+    int minWordLength = TRI_FULLTEXT_MIN_WORD_LENGTH_DEFAULT;
+    VPackSlice minLength = definition.get("minLength");
+    if (minLength.isNumber()) {
+      minWordLength = minLength.getNumericValue<int>();
+    } else if (!minLength.isNull() && !minLength.isNone()) {
+      return TRI_ERROR_BAD_PARAMETER;
+    }
+    builder.add("minLength", VPackValue(minWordLength));
+  }
+  return res;
+}
+
 int RocksDBIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
                                                 VPackBuilder& enhanced,
-                                                bool create) const {
+                                                bool create, bool isCoordinator) const {
   // extract index type
   Index::IndexType type = Index::TRI_IDX_TYPE_UNKNOWN;
   VPackSlice current = definition.get("type");
@@ -259,17 +284,19 @@ int RocksDBIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
       enhanced.add("id", VPackValue(std::to_string(id)));
     }
 
-    if (create) {
+    if (create && !isCoordinator) {
       if (!definition.hasKey("objectId")) {
         enhanced.add("objectId",
                      VPackValue(std::to_string(TRI_NewTickServer())));
       }
-    } else {
+    }
+    // breaks lookupIndex()
+    /*else {
       if (!definition.hasKey("objectId")) {
         // objectId missing, but must be present
         return TRI_ERROR_INTERNAL;
       }
-    }
+    }*/
 
     enhanced.add("type", VPackValue(Index::oldtypeName(type)));
 
@@ -294,9 +321,13 @@ int RocksDBIndexFactory::enhanceIndexDefinition(VPackSlice const definition,
       case Index::TRI_IDX_TYPE_SKIPLIST_INDEX:
         res = EnhanceJsonIndexSkiplist(definition, enhanced, create);
         break;
-        
+
       case Index::TRI_IDX_TYPE_PERSISTENT_INDEX:
         res = EnhanceJsonIndexPersistent(definition, enhanced, create);
+        break;
+        
+      case Index::TRI_IDX_TYPE_FULLTEXT_INDEX:
+        res = EnhanceJsonIndexFulltext(definition, enhanced, create);
         break;
 
       case Index::TRI_IDX_TYPE_UNKNOWN:
@@ -329,13 +360,13 @@ std::shared_ptr<Index> RocksDBIndexFactory::prepareIndexFromSlice(
     if (generateKey) {
       THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);
     } else {
-      THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL,
+      THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_BAD_PARAMETER,
                                      "invalid index type definition");
     }
   }
 
-  std::string tmp = value.copyString();
-  arangodb::Index::IndexType const type = arangodb::Index::type(tmp.c_str());
+  std::string const typeString = value.copyString();
+  arangodb::Index::IndexType const type = arangodb::Index::type(typeString);
 
   std::shared_ptr<Index> newIdx;
 
@@ -353,7 +384,10 @@ std::shared_ptr<Index> RocksDBIndexFactory::prepareIndexFromSlice(
   }
 
   if (iid == 0 && !isClusterConstructor) {
-    // Restore is not allowed to generate in id
+    if (!generateKey) {
+      LOG_TOPIC(ERR, arangodb::Logger::FIXME) << info.toJson();
+    }
+    // Restore is not allowed to generate an id
     TRI_ASSERT(generateKey);
     iid = arangodb::Index::generateId();
   }
@@ -374,12 +408,16 @@ std::shared_ptr<Index> RocksDBIndexFactory::prepareIndexFromSlice(
         THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL,
                                        "cannot create edge index");
       }
-      newIdx.reset(
-          new arangodb::RocksDBEdgeIndex(iid, col, StaticStrings::FromString));
+      VPackSlice fields = info.get("fields");
+      TRI_ASSERT(fields.isArray() && fields.length() == 1);
+      std::string direction = fields.at(0).copyString();
+      TRI_ASSERT(direction == StaticStrings::FromString ||
+                 direction == StaticStrings::ToString);
+      newIdx.reset(new arangodb::RocksDBEdgeIndex(iid, col, info, direction));
       break;
     }
-    //case arangodb::Index::TRI_IDX_TYPE_GEO1_INDEX:
-    //case arangodb::Index::TRI_IDX_TYPE_GEO2_INDEX:
+    // case arangodb::Index::TRI_IDX_TYPE_GEO1_INDEX:
+    // case arangodb::Index::TRI_IDX_TYPE_GEO2_INDEX:
     case arangodb::Index::TRI_IDX_TYPE_HASH_INDEX: {
       newIdx.reset(new arangodb::RocksDBHashIndex(iid, col, info));
       break;
@@ -392,10 +430,20 @@ std::shared_ptr<Index> RocksDBIndexFactory::prepareIndexFromSlice(
       newIdx.reset(new arangodb::RocksDBPersistentIndex(iid, col, info));
       break;
     }
+    case arangodb::Index::TRI_IDX_TYPE_GEO1_INDEX:
+    case arangodb::Index::TRI_IDX_TYPE_GEO2_INDEX:{
+      newIdx.reset(new arangodb::RocksDBGeoIndex(iid, col, info));
+      break;
+    }
+    case arangodb::Index::TRI_IDX_TYPE_FULLTEXT_INDEX: {
+      newIdx.reset(new arangodb::RocksDBFulltextIndex(iid, col, info));
+      break;
+    }
 
     case arangodb::Index::TRI_IDX_TYPE_UNKNOWN:
     default: {
-      THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL, "invalid index type");
+      std::string msg = "invalid or unsupported index type '" + typeString + "'";
+      THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_NOT_IMPLEMENTED, msg);
     }
   }
 
@@ -413,11 +461,16 @@ void RocksDBIndexFactory::fillSystemIndexes(
 
   systemIndexes.emplace_back(
       std::make_shared<arangodb::RocksDBPrimaryIndex>(col, builder.slice()));
-  // create edges index
+  // create edges indexes
   if (col->type() == TRI_COL_TYPE_EDGE) {
     systemIndexes.emplace_back(std::make_shared<arangodb::RocksDBEdgeIndex>(
-        1, col, StaticStrings::FromString));
+        1, col, builder.slice(), StaticStrings::FromString));
     systemIndexes.emplace_back(std::make_shared<arangodb::RocksDBEdgeIndex>(
-        2, col, StaticStrings::ToString));
+        2, col, builder.slice(), StaticStrings::ToString));
   }
+}
+
+std::vector<std::string> RocksDBIndexFactory::supportedIndexes() const {
+  return std::vector<std::string>{"primary", "edge", "hash", "skiplist",
+                                  "persistent", "geo", "fulltext"};
 }

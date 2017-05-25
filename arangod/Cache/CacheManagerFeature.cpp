@@ -30,6 +30,7 @@
 
 #include "ApplicationFeatures/ApplicationServer.h"
 #include "Basics/ArangoGlobalContext.h"
+#include "Basics/process-utils.h"
 #include "Basics/WorkMonitor.h"
 #include "Basics/asio-helper.h"
 #include "Cache/CacheManagerFeatureThreads.h"
@@ -37,7 +38,6 @@
 #include "Logger/LogAppender.h"
 #include "ProgramOptions/ProgramOptions.h"
 #include "ProgramOptions/Section.h"
-//#include "RestServer/ServerFeature.h"
 #include "Scheduler/Scheduler.h"
 #include "Scheduler/SchedulerFeature.h"
 
@@ -56,9 +56,10 @@ CacheManagerFeature::CacheManagerFeature(
     : ApplicationFeature(server, "CacheManager"),
       _manager(nullptr),
       _rebalancer(nullptr),
-      _cacheSize(16 * 1024 * 1024),
-      _rebalancingInterval(2 * 1000 * 1000) {
-  // TODO: set intelligent default for _cacheSize
+      _cacheSize((TRI_PhysicalMemory >= (static_cast<uint64_t>(4) << 30))
+                  ? static_cast<uint64_t>((TRI_PhysicalMemory - (static_cast<uint64_t>(2) << 30)) * 0.3)
+                  : (256 << 20)),
+      _rebalancingInterval(static_cast<uint64_t>(2 * 1000 * 1000)) {
   setOptional(true);
   requiresElevatedPrivileges(false);
   startsAfter("Scheduler");

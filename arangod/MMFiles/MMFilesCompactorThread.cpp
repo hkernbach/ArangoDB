@@ -35,10 +35,10 @@
 #include "MMFiles/MMFilesDatafileHelper.h"
 #include "MMFiles/MMFilesDatafileStatisticsContainer.h"
 #include "MMFiles/MMFilesDocumentPosition.h"
+#include "MMFiles/MMFilesEngine.h"
 #include "MMFiles/MMFilesIndexElement.h"
 #include "MMFiles/MMFilesPrimaryIndex.h"
 #include "StorageEngine/EngineSelectorFeature.h"
-#include "StorageEngine/StorageEngine.h"
 #include "Utils/SingleCollectionTransaction.h"
 #include "Transaction/StandaloneContext.h"
 #include "Transaction/Helpers.h"
@@ -323,7 +323,7 @@ MMFilesCompactorThread::CompactionInitialContext MMFilesCompactorThread::getComp
       auto physical = static_cast<MMFilesCollection*>(context._collection->getPhysical());
       TRI_ASSERT(physical != nullptr);
       bool const useDeadlockDetector = false;
-      int res = physical->beginReadTimed(useDeadlockDetector, 86400.0);
+      int res = physical->lockRead(useDeadlockDetector, 86400.0);
 
       if (res != TRI_ERROR_NO_ERROR) {
         ok = false;
@@ -334,7 +334,7 @@ MMFilesCompactorThread::CompactionInitialContext MMFilesCompactorThread::getComp
         } catch (...) {
           ok = false;
         }
-        physical->endRead(useDeadlockDetector);
+        physical->unlockRead(useDeadlockDetector);
       }
     }
 
@@ -856,7 +856,7 @@ void MMFilesCompactorThread::signal() {
 }
 
 void MMFilesCompactorThread::run() {
-  StorageEngine* engine = EngineSelectorFeature::ENGINE;
+  MMFilesEngine* engine = static_cast<MMFilesEngine*>(EngineSelectorFeature::ENGINE);
   std::vector<arangodb::LogicalCollection*> collections;
   int numCompacted = 0;
 

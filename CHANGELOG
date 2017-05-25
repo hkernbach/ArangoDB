@@ -1,6 +1,100 @@
 devel
 -----
 
+* added checks for memory managment and warn (i. e. if hugepages are enabled)
+
+* set default SSL cipher suite string to "HIGH:!EXPORT:!aNULL@STRENGTH"
+
+* fixed issue #2469: Authentication = true does not protect foxx-routes
+
+* fixed issue #2459: compile success but can not run with rocksdb
+
+* `--server.maximal-queue-size` is now an absolute maximum. If the queue is
+  full, then 503 is returned. Setting it to 0 means "no limit".
+
+* (Enterprise only) added authentication against an LDAP server
+
+* fixed issue #2083: Foxx services aren't distributed to all coordinators
+
+* fixed issue #2384: new coordinators don't pick up existing Foxx services
+
+* fixed issue #2408: Foxx service validation causes unintended side-effects
+
+* extended HTTP API with routes for managing Foxx services
+
+* added distinction between hasUser and authorized within Foxx
+  (cluster internal requests are authorized requests but don't have a user)
+
+
+v3.2.alpha4 (2017-04-25)
+------------------------
+
+* fixed issue #2450: Bad optimization plan on simple query
+
+* fixed issue #2448: ArangoDB Web UI takes no action when Delete button is clicked
+
+* fixed issue #2442: Frontend shows already deleted databases during login 
+
+* added 'x-content-type-options: nosniff' to avoid MSIE bug
+
+* set default value for `--ssl.protocol` from TLSv1 to TLSv1.2.
+
+* AQL breaking change in cluster:
+  The SHORTEST_PATH statement using edge-collection names instead
+  of a graph name now requires to explicitly name the vertex-collection names 
+  within the AQL query in the cluster. It can be done by adding `WITH <name>`
+  at the beginning of the query.
+  
+  Example:
+  ```
+  FOR v,e IN OUTBOUND SHORTEST_PATH @start TO @target edges [...]
+  ```
+
+  Now has to be:
+
+  ```
+  WITH vertices
+  FOR v,e IN OUTBOUND SHORTEST_PATH @start TO @target edges [...]
+  ```
+
+  This change is due to avoid dead-lock sitations in clustered case.
+  An error stating the above is included.
+
+* add implicit use of geo indexes when using SORT/FILTER in AQL, without
+  the need to use the special-purpose geo AQL functions `NEAR` or `WITHIN`.
+
+  the special purpose `NEAR` AQL function can now be substituted with the
+  following AQL (provided there is a geo index present on the `doc.latitude`
+  and `doc.longitude` attributes):
+
+      FOR doc in geoSort 
+        SORT DISTANCE(doc.latitude, doc.longitude, 0, 0) 
+        LIMIT 5 
+        RETURN doc
+
+  `WITHIN` can be substituted with the following AQL:
+
+      FOR doc in geoFilter 
+        FILTER DISTANCE(doc.latitude, doc.longitude, 0, 0) < 2000 
+        RETURN doc
+
+  Compared to using the special purpose AQL functions this approach has the
+  advantage that it is more composable, and will also honor any `LIMIT` values
+  used in the AQL query.
+
+* potential fix for shutdown hangs on OSX
+
+* added KB, MB, GB prefix for integer parameters, % for integer parameters
+  with a base value
+
+* added JEMALLOC 4.5.0
+
+* added `--vm.resident-limit` and `--vm.path` for file-backed memory mapping
+  after reaching a configurable maximum RAM size
+
+* try recommended limit for file descriptors in case of unlimited
+  hard limit
+
 * issue #2413: improve logging in case of lock timeout and deadlocks
 
 * added log topic attribute to /_admin/log api
@@ -9,6 +103,10 @@ devel
 
   Enabling this option activated some proprietary timers for only selected 
   events in arangod. Instead better use `perf` to gather timings.
+
+
+v3.2.alpha3 (2017-03-22)
+------------------------
 
 * increase default collection lock timeout from 30 to 900 seconds
 
@@ -164,7 +262,7 @@ v3.2.alpha1 (2017-02-05)
 * fix potential port number over-/underruns
 
 * added startup option `--log.shorten-filenames` for controlling whether filenames
-  in log message should be shortened to just the filename with the absolute path
+  in log messages should be shortened to just the filename with the absolute path
 
 * removed IndexThreadFeature, made `--database.index-threads` option obsolete
 
@@ -175,8 +273,63 @@ v3.2.alpha1 (2017-02-05)
 * generated Foxx services now use swagger tags
 
 
-v3.1.18 (2017-XX-XX)
+v3.1.21 (XXXX-XX-XX)
 --------------------
+
+* fixed issue #2488:  AQL operator IN error when data use base64 chars
+
+
+v3.1.20 (2016-05-16)
+--------------------
+
+* fixed incorrect sorting for distributeShardsLike
+
+* improve reliability of AgencyComm communication with Agency
+
+* fixed shard numbering bug, where ids were erouneously incremented by 1
+
+* remove an unnecessary precondition in createCollectionCoordinator
+
+* funny fail rotation fix
+
+* fix in SimpleHttpClient for correct advancement of readBufferOffset
+
+* forward SIG_HUP in supervisor process to the server process to fix logrotaion
+  You need to stop the remaining arangod server process manually for the upgrade to work.
+
+
+v3.1.19 (2017-04-28)
+--------------------
+
+* Fixed a StackOverflow issue in Traversal and ShortestPath. Occured if many (>1000) input
+  values in a row do not return any result. Fixes issue: #2445
+
+* fixed issue #2448
+
+* fixed issue #2442
+
+* added 'x-content-type-options: nosniff' to avoid MSIE bug
+
+* fixed issue #2441
+
+* fixed issue #2440
+
+* Fixed a StackOverflow issue in Traversal and ShortestPath. Occured if many (>1000) input
+  values in a row do not return any result. Fixes issue: #2445
+
+* fix occasional hanging shutdowns on OS X
+
+
+v3.1.18 (2017-04-18)
+--------------------
+
+* fixed error in continuous synchronization of collections
+
+* fixed spurious hangs on server shutdown
+
+* better error messages during restore collection
+
+* completely overhaul supervision. More detailed tests
 
 * Fixed a dead-lock situation in cluster traversers, it could happen in
   rare cases if the computation on one DBServer could be completed much earlier
@@ -187,6 +340,10 @@ v3.1.18 (2017-XX-XX)
   enough, causing the traverser to do unlimited depth searches.
 
 * fixed issue #2415
+
+* fixed issue #2422
+
+* fixed issue #1974
 
 
 v3.1.17 (2017-04-04)
@@ -378,7 +535,7 @@ v3.1.10 (2017-02-02)
       FOR doc IN docs RETURN doc.value ? doc.value : 'not present'
 
 * fixed wrong sorting order in cluster, if an index was used to sort with many
-shards.
+  shards.
 
 * added --replication-factor, --number-of-shards and --wait-for-sync to arangobench
 

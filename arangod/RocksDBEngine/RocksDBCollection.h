@@ -1,7 +1,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
-/// Copyright 2014-2016 ArangoDB GmbH, Cologne, Germany
+/// Copyright 2014-2017 ArangoDB GmbH, Cologne, Germany
 /// Copyright 2004-2014 triAGENS GmbH, Cologne, Germany
 ///
 /// Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,11 +27,19 @@
 #include "Basics/Common.h"
 #include "Basics/ReadWriteLock.h"
 #include "Indexes/IndexLookupContext.h"
+#include "RocksDBEngine/RocksDBCommon.h"
+#include "StorageEngine/PhysicalCollection.h"
 #include "VocBase/KeyGenerator.h"
 #include "VocBase/ManagedDocumentResult.h"
-#include "VocBase/PhysicalCollection.h"
+
+namespace rocksdb {
+class Transaction;
+}
 
 namespace arangodb {
+namespace cache {
+  class Cache;
+}
 class LogicalCollection;
 class ManagedDocumentResult;
 class Result;
@@ -42,22 +50,11 @@ struct RocksDBToken;
 class RocksDBCollection final : public PhysicalCollection {
   friend class RocksDBEngine;
   friend class RocksDBVPackIndex;
+  friend class RocksDBFulltextIndex;
+
+  constexpr static double defaultLockTimeout = 10.0 * 60.0;
 
  public:
-  static inline RocksDBCollection* toRocksDBCollection(
-      PhysicalCollection* physical) {
-    auto rv = static_cast<RocksDBCollection*>(physical);
-    TRI_ASSERT(rv != nullptr);
-    return rv;
-  }
-
-  static inline RocksDBCollection* toRocksDBCollection(
-      LogicalCollection* logical) {
-    auto phys = logical->getPhysical();
-    TRI_ASSERT(phys != nullptr);
-    return toRocksDBCollection(phys);
-  }
-
  public:
   explicit RocksDBCollection(LogicalCollection*, VPackSlice const& info);
   explicit RocksDBCollection(LogicalCollection*,
@@ -90,11 +87,6 @@ class RocksDBCollection final : public PhysicalCollection {
   size_t memory() const override;
   void open(bool ignoreErrors) override;
 
-  /// @brief iterate all markers of a collection on load
-  int iterateMarkersOnLoad(arangodb::transaction::Methods* trx) override;
-
-  bool isFullyCollected() const override;
-
   ////////////////////////////////////
   // -- SECTION Indexes --
   ///////////////////////////////////
@@ -118,7 +110,8 @@ class RocksDBCollection final : public PhysicalCollection {
   std::unique_ptr<IndexIterator> getAnyIterator(
       transaction::Methods* trx, ManagedDocumentResult* mdr) override;
 
-  void invokeOnAllElements(transaction::Methods* trx,
+  void invokeOnAllElements(
+      transaction::Methods* trx,
       std::function<bool(DocumentIdentifierToken const&)> callback) override;
 
   ////////////////////////////////////
@@ -126,6 +119,14 @@ class RocksDBCollection final : public PhysicalCollection {
   ///////////////////////////////////
 
   void truncate(transaction::Methods* trx, OperationOptions& options) override;
+  /// non transactional truncate, will continoiusly commit the deletes
+  /// and no fully rollback on failure. Uses trx snapshots to isolate
+  /// against newer PUTs
+  // void truncateNoTrx(transaction::Methods* trx);
+
+  DocumentIdentifierToken lookupKey(
+      transaction::Methods* trx,
+      arangodb::velocypack::Slice const& key) override;
 
   int read(transaction::Methods*, arangodb::velocypack::Slice const key,
            ManagedDocumentResult& result, bool) override;
@@ -133,11 +134,10 @@ class RocksDBCollection final : public PhysicalCollection {
   bool readDocument(transaction::Methods* trx,
                     DocumentIdentifierToken const& token,
                     ManagedDocumentResult& result) override;
-
-  bool readDocumentConditional(transaction::Methods* trx,
-                               DocumentIdentifierToken const& token,
-                               TRI_voc_tick_t maxTick,
-                               ManagedDocumentResult& result) override;
+  
+  bool readDocumentNoCache(transaction::Methods* trx,
+                    DocumentIdentifierToken const& token,
+                    ManagedDocumentResult& result);
 
   int insert(arangodb::transaction::Methods* trx,
              arangodb::velocypack::Slice const newSlice,
@@ -176,7 +176,26 @@ class RocksDBCollection final : public PhysicalCollection {
   uint64_t objectId() const { return _objectId; }
 
   Result lookupDocumentToken(transaction::Methods* trx, arangodb::StringRef key,
-                             RocksDBToken& token);
+                             RocksDBToken& token) const;
+
+  int lockWrite(double timeout = 0.0);
+  int unlockWrite();
+  int lockRead(double timeout = 0.0);
+  int unlockRead();
+
+  /// recalculte counts for collection in case of failure
+  uint64_t recalculateCounts();
+
+  /// trigger rocksdb compaction for documentDB and indexes
+  void compact();
+  void estimateSize(velocypack::Builder& builder);
+
+  bool hasGeoIndex() { return _hasGeoIndex; }
+
+  Result serializeIndexEstimates(rocksdb::Transaction*) const;
+  void deserializeIndexEstimates(arangodb::RocksDBCounterManager* mgr);
+
+  void recalculateIndexEstimates();
 
  private:
   /// @brief return engine-specific figures
@@ -194,31 +213,65 @@ class RocksDBCollection final : public PhysicalCollection {
 
   arangodb::RocksDBPrimaryIndex* primaryIndex() const;
 
-  int insertDocument(arangodb::transaction::Methods* trx,
-                     TRI_voc_rid_t revisionId,
-                     arangodb::velocypack::Slice const& doc, bool& waitForSync);
+  arangodb::RocksDBOperationResult insertDocument(
+      arangodb::transaction::Methods* trx, TRI_voc_rid_t revisionId,
+      arangodb::velocypack::Slice const& doc, bool& waitForSync) const;
 
-  int removeDocument(arangodb::transaction::Methods* trx,
-                     TRI_voc_rid_t revisionId,
-                     arangodb::velocypack::Slice const& doc, bool& waitForSync);
+  arangodb::RocksDBOperationResult removeDocument(
+      arangodb::transaction::Methods* trx, TRI_voc_rid_t revisionId,
+      arangodb::velocypack::Slice const& doc, bool isUpdate, bool& waitForSync) const;
 
-  int lookupDocument(transaction::Methods* trx, arangodb::velocypack::Slice key,
-                     ManagedDocumentResult& result);
+  arangodb::RocksDBOperationResult lookupDocument(
+      transaction::Methods* trx, arangodb::velocypack::Slice key,
+      ManagedDocumentResult& result) const;
 
-  int updateDocument(transaction::Methods* trx, TRI_voc_rid_t oldRevisionId,
-                     arangodb::velocypack::Slice const& oldDoc,
-                     TRI_voc_rid_t newRevisionId,
-                     arangodb::velocypack::Slice const& newDoc,
-                     bool& waitForSync);
+  arangodb::RocksDBOperationResult updateDocument(
+      transaction::Methods* trx, TRI_voc_rid_t oldRevisionId,
+      arangodb::velocypack::Slice const& oldDoc, TRI_voc_rid_t newRevisionId,
+      arangodb::velocypack::Slice const& newDoc, bool& waitForSync) const;
 
   arangodb::Result lookupRevisionVPack(TRI_voc_rid_t, transaction::Methods*,
-                                       arangodb::ManagedDocumentResult&);
+                                       arangodb::ManagedDocumentResult&,
+                                       bool withCache) const;
+
+  void recalculateIndexEstimates(std::vector<std::shared_ptr<Index>>& indexes);
+
+  void createCache() const;
+
+  void disableCache() const;
+
+  inline bool useCache() const { return (_useCache && _cachePresent); }
+
+  void blackListKey(char const* data, std::size_t len) const;
 
  private:
   uint64_t const _objectId;  // rocksdb-specific object id for collection
   std::atomic<uint64_t> _numberDocuments;
   std::atomic<TRI_voc_rid_t> _revisionId;
+  mutable std::atomic<bool> _needToPersistIndexEstimates;
+
+  /// upgrade write locks to exclusive locks if this flag is set
+  bool _hasGeoIndex;
+  mutable basics::ReadWriteLock _exclusiveLock;
+  mutable std::shared_ptr<cache::Cache> _cache;
+  // we use this boolean for testing whether _cache is set.
+  // it's quicker than accessing the shared_ptr each time
+  mutable bool _cachePresent;
+  bool _useCache;
 };
+
+inline RocksDBCollection* toRocksDBCollection(PhysicalCollection* physical) {
+  auto rv = static_cast<RocksDBCollection*>(physical);
+  TRI_ASSERT(rv != nullptr);
+  return rv;
 }
+
+inline RocksDBCollection* toRocksDBCollection(LogicalCollection* logical) {
+  auto phys = logical->getPhysical();
+  TRI_ASSERT(phys != nullptr);
+  return toRocksDBCollection(phys);
+}
+
+}  // namespace arangodb
 
 #endif

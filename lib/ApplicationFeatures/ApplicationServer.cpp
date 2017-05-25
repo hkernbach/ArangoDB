@@ -29,6 +29,8 @@
 #include "Logger/Logger.h"
 #include "ProgramOptions/ArgumentParser.h"
 
+#include <iostream>
+
 using namespace arangodb::application_features;
 using namespace arangodb::basics;
 using namespace arangodb::options;
@@ -384,35 +386,27 @@ void ApplicationServer::setupDependencies(bool failOnMissing) {
   // first insert all features, even the inactive ones
   std::vector<ApplicationFeature*> features;
   for (auto& it : _features) {
+    auto const& us = it.second;
     auto insertPosition = features.end();
 
-    if (!features.empty()) {
-      for (size_t i = features.size(); i > 0; --i) {
-        if (it.second->doesStartBefore(features[i - 1]->name())) {
+    for (size_t i = features.size(); i > 0; --i) {
+      auto const& other = features[i - 1];
+      if (us->doesStartBefore(other->name())) {
+        // we start before the other feature. so move ourselves up
+        insertPosition = features.begin() + (i - 1);
+      } else if (other->doesStartBefore(us->name())) {
+        // the other feature starts before us. so stop moving up
+        break;
+      } else {
+        // no dependencies between the two features
+        if (us->name() < other->name()) {
           insertPosition = features.begin() + (i - 1);
         }
       }
     }
     features.insert(insertPosition, it.second);
   }
-
-  for (size_t i = 1; i < features.size(); ++i) {
-    auto feature = features[i];
-    size_t insert = i;
-    for (size_t j = i; j > 0; --j) {
-      if (features[j - 1]->doesStartBefore(feature->name())) {
-        break;
-      }
-      insert = j - 1;
-    }
-    if (insert != i) {
-      for (size_t j = i; j > insert; --j) {
-        features[j] = features[j - 1];
-      }
-      features[insert] = feature;
-    }
-  }
-
+  
   LOG_TOPIC(TRACE, Logger::STARTUP) << "ordered features:";
 
   int position = 0;
@@ -425,7 +419,7 @@ void ApplicationServer::setupDependencies(bool failOnMissing) {
     }
     LOG_TOPIC(TRACE, Logger::STARTUP)
         << "feature #" << ++position << ": " << feature->name()
-        << (feature->isEnabled() ? "" : " (disabled)") << " " << dependencies;
+        << (feature->isEnabled() ? "" : " (disabled)") << dependencies;
   }
 
   // remove all inactive features
@@ -468,7 +462,7 @@ void ApplicationServer::disableDependentFeatures() {
       if (f == nullptr) {
         LOG_TOPIC(TRACE, Logger::STARTUP) << "turning off feature '" << feature->name() 
                                           << "' because it is enabled only in conjunction with non-existing feature '" 
-                                          << f->name() << "'";
+                                          << other << "'";
         feature->disable();
         break;
       } else if (!f->isEnabled()) {
@@ -605,6 +599,10 @@ void ApplicationServer::start() {
       THROW_ARANGO_EXCEPTION_MESSAGE(res, std::string("startup aborted: ") + TRI_errno_string(res));
     }
   }
+
+  for (auto const& callback : _startupCallbacks) { 
+    callback();
+  }
 }
 
 void ApplicationServer::stop() {
@@ -701,3 +699,4 @@ void ApplicationServer::reportFeatureProgress(ServerState state,
     reporter._feature(state, name);
   }
 }
+

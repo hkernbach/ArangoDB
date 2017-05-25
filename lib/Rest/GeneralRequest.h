@@ -81,6 +81,7 @@ class GeneralRequest {
         _protocol(""),
         _connectionInfo(connectionInfo),
         _clientTaskId(0),
+        _authorized(false),
         _requestContext(nullptr),
         _isRequestContextOwner(false),
         _type(RequestType::ILLEGAL),
@@ -91,7 +92,7 @@ class GeneralRequest {
 
  public:
   ProtocolVersion protocolVersion() const { return _version; }
-  char const* protocol() const { return _protocol; }  // http, https or vpp
+  char const* protocol() const { return _protocol; }  // http, https or vst
   void setProtocol(char const* protocol) { _protocol = protocol; }
 
   ConnectionInfo const& connectionInfo() const { return _connectionInfo; }
@@ -105,6 +106,8 @@ class GeneralRequest {
   }
 
   // the authenticated user
+  bool authorized() { return _authorized; }
+  void setAuthorized(bool a) { _authorized = a; }
   std::string const& user() const { return _user; }
   void setUser(std::string const& user) { _user = user; }
   void setUser(std::string&& user) { _user = std::move(user); }
@@ -192,12 +195,13 @@ class GeneralRequest {
 
  protected:
   ProtocolVersion _version;
-  char const* _protocol;  // http, https or vpp
+  char const* _protocol;  // http, https or vst
 
   // connection info
   ConnectionInfo _connectionInfo;
   uint64_t _clientTaskId;
   std::string _databaseName;
+  bool _authorized;
   std::string _user;
 
   // request context

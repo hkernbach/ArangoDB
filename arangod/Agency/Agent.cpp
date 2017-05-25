@@ -1,4 +1,3 @@
-
 ////////////////////////////////////////////////////////////////////////////////
 /// DISCLAIMER
 ///
@@ -55,7 +54,7 @@ Agent::Agent(config_t const& config)
     _readDB(this),
     _transient(this),
     _compacted(this),
-    _nextCompationAfter(_config.compactionStepSize()),
+    _nextCompactionAfter(_config.compactionStepSize()),
     _inception(std::make_unique<Inception>(this)),
     _activator(nullptr),
     _compactor(this),
@@ -100,9 +99,9 @@ Agent::~Agent() {
       FATAL_ERROR_EXIT();
     }
   }
-
+    
   shutdown();
-
+  
 }
 
 /// State machine
@@ -167,7 +166,7 @@ void Agent::startConstituent() {
 }
 
 // Waits here for confirmation of log's commits up to index. Timeout in seconds.
-Agent::raft_commit_t Agent::waitFor(index_t index, double timeout) {
+AgentInterface::raft_commit_t Agent::waitFor(index_t index, double timeout) {
 
   if (size() == 1) {  // single host agency
     return Agent::raft_commit_t::OK;
@@ -251,7 +250,7 @@ void Agent::reportIn(std::string const& peerId, index_t index, size_t toLog) {
 
         MUTEX_LOCKER(liLocker, _liLock);
         _leaderCommitIndex = index;
-        if (_leaderCommitIndex >= _nextCompationAfter) {
+        if (_leaderCommitIndex >= _nextCompactionAfter) {
           _compactor.wakeUp();
         }
 
@@ -311,7 +310,7 @@ bool Agent::recvAppendEntriesRPC(
         
         _lastCommitIndex = _state.log(queries, ndups);
         
-        if (_lastCommitIndex >= _nextCompationAfter) {
+        if (_lastCommitIndex >= _nextCompactionAfter) {
           _compactor.wakeUp();
         }
 
@@ -431,7 +430,7 @@ void Agent::sendAppendEntriesRPC() {
           <<  std::chrono::duration<double, std::milli>(
             _earliestPackage[followerId]-system_clock::now()).count() << "ms";
       } else {
-        LOG_TOPIC(DEBUG, Logger::AGENCY)
+        LOG_TOPIC(TRACE, Logger::AGENCY)
           << "Just keeping follower " << followerId
           << " devout with " << builder.toJson();
       }
@@ -513,8 +512,9 @@ bool Agent::activateAgency() {
     }
     bool persisted = false; 
     try {
-      persisted = _state.persistActiveAgents(_config.activeToBuilder(),
-                                             _config.poolToBuilder());
+      _state.persistActiveAgents(_config.activeToBuilder(),
+                                 _config.poolToBuilder());
+      persisted = true;
     } catch (std::exception const& e) {
       LOG_TOPIC(FATAL, Logger::AGENCY)
         << "Failed to persist active agency: " << e.what();
@@ -560,23 +560,24 @@ bool Agent::load() {
   reportIn(id(), _state.lastLog().index);
 
   _compactor.start();
+  TRI_ASSERT(queryRegistry != nullptr);
 
   LOG_TOPIC(DEBUG, Logger::AGENCY) << "Starting spearhead worker.";
   if (size() == 1 || !this->isStopping()) {
     _spearhead.start();
     _readDB.start();
   }
-
+ 
   TRI_ASSERT(queryRegistry != nullptr);
   if (size() == 1) {
     activateAgency();
   }
-
+ 
   if (size() == 1 || !this->isStopping()) {
     _constituent.start(vocbase, queryRegistry);
     persistConfiguration(term());
   }
-
+ 
   if (size() == 1 || (!this->isStopping() && _config.supervision())) {
     LOG_TOPIC(DEBUG, Logger::AGENCY) << "Starting cluster sanity facilities";
     _supervision.start(this);
@@ -639,6 +640,7 @@ trans_ret_t Agent::transact(query_t const& queries) {
 
   // Apply to spearhead and get indices for log entries
   auto qs = queries->slice();
+  addTrxsOngoing(qs);    // remember that these are ongoing
   auto ret = std::make_shared<arangodb::velocypack::Builder>();
   size_t failed = 0;
   ret->openArray();
@@ -654,13 +656,14 @@ trans_ret_t Agent::transact(query_t const& queries) {
     
     for (const auto& query : VPackArrayIterator(qs)) {
       if (query[0].isObject()) {
-        if(_spearhead.apply(query)) {
+        check_ret_t res = _spearhead.apply(query); 
+        if(res.successful()) {
           maxind = (query.length() == 3 && query[2].isString()) ?
             _state.log(query[0], term(), query[2].copyString()) :
             _state.log(query[0], term());
           ret->add(VPackValue(maxind));
         } else {
-          ret->add(VPackValue(0));
+          _spearhead.read(res.failed->slice(), *ret);
           ++failed;
         }
       } else if (query[0].isString()) {
@@ -668,8 +671,10 @@ trans_ret_t Agent::transact(query_t const& queries) {
       }
     }
     
+    removeTrxsOngoing(qs);
+
     // (either no writes or all preconditions failed)
-    if (maxind == 0) {
+/*    if (maxind == 0) {
       ret->clear();
       ret->openArray();      
       for (const auto& query : VPackArrayIterator(qs)) {
@@ -679,7 +684,7 @@ trans_ret_t Agent::transact(query_t const& queries) {
           _readDB.read(query, *ret);
         }
       }
-    }
+      }*/
     
   }
   ret->close();
@@ -715,7 +720,7 @@ trans_ret_t Agent::transient(query_t const& queries) {
     // Read and writes
     for (const auto& query : VPackArrayIterator(queries->slice())) {
       if (query[0].isObject()) {
-        _transient.apply(query);
+        ret->add(VPackValue(_transient.apply(query).successful()));
       } else if (query[0].isString()) {
         _transient.read(query, *ret);
       }
@@ -740,22 +745,37 @@ inquire_ret_t Agent::inquire(query_t const& query) {
 
   auto si = _state.inquire(query);
 
+  bool found = false;
   auto builder = std::make_shared<VPackBuilder>();
   {
     VPackArrayBuilder b(builder.get());
     for (auto const& i : si) {
       VPackArrayBuilder bb(builder.get());
       for (auto const& j : i) {
+        found = true;
         VPackObjectBuilder bbb(builder.get());
         builder->add("index", VPackValue(j.index));
         builder->add("term", VPackValue(j.term));
         builder->add("query", VPackSlice(j.entry->data()));
-        builder->add("index", VPackValue(j.index));
       }
     }
   }
   
   ret = inquire_ret_t(true, id(), builder);
+
+  if (!found) {
+    return ret;
+  }
+
+  // Check ongoing ones:
+  for (auto const& s : VPackArrayIterator(query->slice())) {
+    std::string ss = s.copyString();
+    if (isTrxOngoing(ss)) {
+      ret.result->clear();
+      ret.result->add(VPackValue("ongoing"));
+    }
+  }
+
   return ret;
 }
 
@@ -772,6 +792,8 @@ write_ret_t Agent::write(query_t const& query) {
     return write_ret_t(false, leader);
   }
   
+  addTrxsOngoing(query->slice());    // remember that these are ongoing
+
   // Apply to spearhead and get indices for log entries
   {
     MUTEX_LOCKER(ioLocker, _ioLock);
@@ -784,8 +806,9 @@ write_ret_t Agent::write(query_t const& query) {
     
     applied = _spearhead.apply(query);
     indices = _state.log(query, applied, term());
-    
   }
+
+  removeTrxsOngoing(query->slice());
 
   // Maximum log index
   index_t maxind = 0;
@@ -820,6 +843,7 @@ read_ret_t Agent::read(query_t const& query) {
   std::vector<bool> success = _readDB.read(query, result);
 
   return read_ret_t(true, _constituent.leaderID(), success, result);
+  
 }
 
 
@@ -900,19 +924,17 @@ void Agent::persistConfiguration(term_t t) {
 
   // Agency configuration
   auto agency = std::make_shared<Builder>();
-  agency->openArray();
-  agency->openArray();
-  agency->openObject();
-  agency->add(".agency", VPackValue(VPackValueType::Object));
-  agency->add("term", VPackValue(t));
-  agency->add("id", VPackValue(id()));
-  agency->add("active", _config.activeToBuilder()->slice());
-  agency->add("pool", _config.poolToBuilder()->slice());
-  agency->add("size", VPackValue(size()));
-  agency->close();
-  agency->close();
-  agency->close();
-  agency->close();
+  { VPackArrayBuilder trxs(agency.get());
+    { VPackArrayBuilder trx(agency.get());
+      { VPackObjectBuilder oper(agency.get());
+        agency->add(VPackValue(".agency"));
+        { VPackObjectBuilder a(agency.get());
+          agency->add("term", VPackValue(t));
+          agency->add("id", VPackValue(id()));
+          agency->add("active", _config.activeToBuilder()->slice());
+          agency->add("pool", _config.poolToBuilder()->slice());
+          agency->add("size", VPackValue(size()));
+        }}}}
   
   // In case we've lost leadership, no harm will arise as the failed write
   // prevents bogus agency configuration to be replicated among agents. ***
@@ -976,7 +998,7 @@ void Agent::beginShutdown() {
   }
 
   // Stop inception process
-  if (size() > 1 && _inception != nullptr) {
+  if (_inception != nullptr) {
     _inception->beginShutdown();
   } 
 
@@ -1066,28 +1088,23 @@ void Agent::notifyInactive() const {
   std::string path = "/_api/agency_priv/inform";
 
   Builder out;
-  out.openObject();
-  out.add("term", VPackValue(term()));
-  out.add("id", VPackValue(id()));
-  out.add("active", _config.activeToBuilder()->slice());
-  out.add("pool", _config.poolToBuilder()->slice());
-  out.add("min ping", VPackValue(_config.minPing()));
-  out.add("max ping", VPackValue(_config.maxPing()));
-  out.close();
+  { VPackObjectBuilder o(&out);
+    out.add("term", VPackValue(term()));
+    out.add("id", VPackValue(id()));
+    out.add("active", _config.activeToBuilder()->slice());
+    out.add("pool", _config.poolToBuilder()->slice());
+    out.add("min ping", VPackValue(_config.minPing()));
+    out.add("max ping", VPackValue(_config.maxPing())); }
 
   for (auto const& p : pool) {
-
     if (p.first != id()) {
-
       auto headerFields =
         std::make_unique<std::unordered_map<std::string, std::string>>();
-
       cc->asyncRequest(
         "1", 1, p.second, arangodb::rest::RequestType::POST,
         path, std::make_shared<std::string>(out.toJson()), headerFields,
         nullptr, 1.0, true);
     }
-
   }
 
 }
@@ -1182,18 +1199,23 @@ arangodb::consensus::index_t Agent::rebuildDBs() {
   // Apply logs from last applied index to leader's commit index
   LOG_TOPIC(DEBUG, Logger::AGENCY)
     << "Rebuilding key-value stores from index "
-    << _lastAppliedIndex << " to " << _leaderCommitIndex;
+    << _lastCompactionIndex << " to " << _leaderCommitIndex << " " << _state;
 
-  auto logs = _state.slices(_lastAppliedIndex+1, _leaderCommitIndex+1);
-  
+  auto logs = _state.slices(_lastCompactionIndex+1);
+
+  _spearhead.clear();
   _spearhead.apply(logs, _leaderCommitIndex, _constituent.term());
+  _readDB.clear();
   _readDB.apply(logs, _leaderCommitIndex, _constituent.term());
-  
-  LOG_TOPIC(TRACE, Logger::AGENCY)
-    << "ReadDB: " << _readDB;
-  
+  LOG_TOPIC(TRACE, Logger::AGENCY) << "ReadDB: " << _readDB;
+
+    
   _lastAppliedIndex = _leaderCommitIndex;
+  //_lastCompactionIndex = _leaderCommitIndex;
   
+  LOG_TOPIC(INFO, Logger::AGENCY)
+    << id() << " rebuilt key-value stores - serving.";
+
   return _lastAppliedIndex;
 
 }
@@ -1203,7 +1225,7 @@ arangodb::consensus::index_t Agent::rebuildDBs() {
 void Agent::compact() {
   rebuildDBs();
   _state.compact(_lastAppliedIndex-_config.compactionKeepSize());
-  _nextCompationAfter += _config.compactionStepSize();
+  _nextCompactionAfter += _config.compactionStepSize();
 }
 
 
@@ -1259,7 +1281,7 @@ Agent& Agent::operator=(VPackSlice const& compaction) {
   }
 
   // Schedule next compaction
-  _nextCompationAfter = _lastCommitIndex + _config.compactionStepSize();
+  _nextCompactionAfter = _lastCommitIndex + _config.compactionStepSize();
 
   return *this;
 }
@@ -1310,6 +1332,12 @@ query_t Agent::gossip(query_t const& in, bool isCallback, size_t version) {
   }
   VPackSlice pslice = slice.get("pool");
 
+  if (slice.hasKey("active") && slice.get("active").isArray()) {
+    for (auto const& a : VPackArrayIterator(slice.get("active"))) {
+      _config.activePushBack(a.copyString());
+    }
+  }
+
   LOG_TOPIC(TRACE, Logger::AGENCY) << "Received gossip " << slice.toJson();
 
   std::map<std::string, std::string> incoming;
@@ -1336,15 +1364,7 @@ query_t Agent::gossip(query_t const& in, bool isCallback, size_t version) {
       }
     }
     
-    size_t counter = 0;
     for (auto const& i : incoming) {
-      
-      /// more data than pool size: fatal!
-      if (++counter > _config.poolSize()) {
-        LOG_TOPIC(FATAL, Logger::AGENCY)
-          << "Too many peers in pool: " << counter << ">" << _config.poolSize();
-        FATAL_ERROR_EXIT();
-      }
       
       /// disagreement over pool membership: fatal!
       if (!_config.addToPool(i)) {
@@ -1355,15 +1375,22 @@ query_t Agent::gossip(query_t const& in, bool isCallback, size_t version) {
     }
     
     if (!isCallback) { // no gain in callback to a callback.
-      std::map<std::string, std::string> pool = _config.pool();
-      
-      out->add("endpoint", VPackValue(_config.endpoint()));
-      out->add("id", VPackValue(_config.id()));
+      auto pool = _config.pool();
+      auto active = _config.active();
+
+      // Wrapped in envelope in RestAgencyPriveHandler
       out->add(VPackValue("pool"));
       {
         VPackObjectBuilder bb(out.get());
         for (auto const& i : pool) {
           out->add(i.first, VPackValue(i.second));
+        }
+      }
+      out->add(VPackValue("active"));
+      {
+        VPackArrayBuilder bb(out.get());
+        for (auto const& i : active) {
+          out->add(VPackValue(i));
         }
       }
     }
@@ -1433,6 +1460,46 @@ query_t Agent::buildDB(arangodb::consensus::index_t index) {
   
   return builder;
   
+}
+
+void Agent::addTrxsOngoing(Slice trxs) {
+  try {
+    MUTEX_LOCKER(guard,_trxsLock);
+    for (auto const& trx : VPackArrayIterator(trxs)) {
+      if (trx[0].isObject() && trx.length() == 3 && trx[2].isString()) {
+        // only those are interesting:
+        _ongoingTrxs.insert(trx[2].copyString());
+      }
+    }
+  } catch (...) {
+  }
+}
+
+void Agent::removeTrxsOngoing(Slice trxs) {
+  try {
+    MUTEX_LOCKER(guard, _trxsLock);
+    for (auto const& trx : VPackArrayIterator(trxs)) {
+      if (trx[0].isObject() && trx.length() == 3 && trx[2].isString()) {
+        // only those are interesting:
+        _ongoingTrxs.erase(trx[2].copyString());
+      }
+    }
+  } catch (...) {
+  }
+}
+
+bool Agent::isTrxOngoing(std::string& id) {
+  try {
+    MUTEX_LOCKER(guard, _trxsLock);
+    auto it = _ongoingTrxs.find(id);
+    return it != _ongoingTrxs.end();
+  } catch (...) {
+    return false;
+  }
+}
+
+Inception const* Agent::inception() const {
+  return _inception.get();
 }
 
 }}  // namespace

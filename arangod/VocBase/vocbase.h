@@ -38,6 +38,8 @@
 #include "velocypack/Slice.h"
 #include "velocypack/velocypack-aliases.h"
 
+#include <functional>
+
 class TRI_replication_applier_t;
 
 namespace arangodb {
@@ -208,6 +210,9 @@ struct TRI_vocbase_t {
   void updateReplicationClient(TRI_server_id_t, TRI_voc_tick_t);
   std::vector<std::tuple<TRI_server_id_t, double, TRI_voc_tick_t>>
   getReplicationClients();
+  /// garbage collect replication clients
+  void garbageCollectReplicationClients(double ttl);
+  
   TRI_replication_applier_t* replicationApplier() const {
     return _replicationApplier.get();
   }
@@ -257,6 +262,8 @@ struct TRI_vocbase_t {
 
   /// @brief returns all known collections
   std::vector<arangodb::LogicalCollection*> collections(bool includeDeleted);
+  
+  void processCollections(std::function<void(arangodb::LogicalCollection*)> const& cb, bool includeDeleted);
 
   /// @brief returns names of all known collections
   std::vector<std::string> collectionNames();

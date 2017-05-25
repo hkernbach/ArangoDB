@@ -6,6 +6,13 @@ endforeach()
 add_executable(
   arangodbtests
 #  ../lib/Basics/WorkMonitorDummy.cpp
+  Agency/AddFollowerTest.cpp
+  Agency/CleanOutServerTest.cpp
+  Agency/FailedFollowerTest.cpp
+  Agency/FailedLeaderTest.cpp
+  Agency/FailedServerTest.cpp
+  Agency/MoveShardTest.cpp
+  Agency/RemoveFollowerTest.cpp
   Basics/icu-helper.cpp
   Basics/AttributeNameParserTest.cpp
   Basics/associative-multi-pointer-test.cpp
@@ -44,15 +51,16 @@ add_executable(
   Cache/TransactionalStore.cpp
   Cache/TransactionManager.cpp
   Cache/TransactionsWithBackingStore.cpp
+  Cluster/ClusterHelpers.cpp
   Geo/georeg.cpp
   Pregel/typedbuffer.cpp
+  RocksDBEngine/IndexEstimatorTest.cpp
   main.cpp
 )
 
 target_link_libraries(
   arangodbtests
   arangoserver
-  rocksdblib
 )
 
 target_include_directories(arangodbtests PRIVATE

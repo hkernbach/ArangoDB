@@ -61,9 +61,16 @@ static void RegisterWarning(arangodb::aql::Ast const* ast,
   if (code == TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH) {
     msg = arangodb::basics::Exception::FillExceptionString(code, functionName);
   } else {
-    msg.append("in function '");
-    msg.append(functionName);
-    msg.append("()': ");
+    if (strlen(functionName) <= 2) {
+      // only an operator but no "real" function
+      msg.append("in operator ");
+      msg.append(functionName);
+      msg.append(": ");
+    } else {
+      msg.append("in function '");
+      msg.append(functionName);
+      msg.append("()': ");
+    }
     msg.append(TRI_errno_string(code));
   }
 
@@ -947,7 +954,7 @@ AqlValue Expression::executeSimpleExpressionPlus(AstNode const* node,
       return AqlValue(s.getNumber<int64_t>());
     } else if (s.isUInt()) {
       // can use uint64
-      return AqlValue(s.getNumber<uint64_t>());
+      return AqlValue(s.getUInt());
     }
     // fallthrouh intentional
   }

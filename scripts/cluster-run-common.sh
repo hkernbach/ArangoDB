@@ -16,6 +16,8 @@ function help() {
   echo "  -x/--xterm              XTerm command       (default: xterm)"
   echo "  -o/--xterm-options      XTerm options       (default: --geometry=80x43)"
   echo "  -b/--offset-ports       Offset ports        (default: 0, i.e. A:4001, C:8530, D:8629)"
+  echo "  -r/--rocksdb-engine     Use Rocksdb engine  (default: false )"
+  echo "  -q/--source-dir         ArangoDB source dir (default: .)"
   echo ""
   echo "EXAMPLES:"
   echo "  $0"
@@ -31,8 +33,8 @@ NRCOORDINATORS=1
 POOLSZ=""
 TRANSPORT="tcp"
 LOG_LEVEL="INFO"
-LOG_LEVEL_AGENCY=""
-LOG_LEVEL_CLUSTER=""
+LOG_LEVEL_AGENCY="INFO"
+LOG_LEVEL_CLUSTER="INFO"
 if [ -z "$XTERM" ] ; then
     XTERM="x-terminal-emulator"
 fi
@@ -43,6 +45,7 @@ SECONDARIES=0
 BUILD="build"
 JWT_SECRET=""
 PORT_OFFSET=0
+SRC_DIR="."
 
 while [[ ${1} ]]; do
     case "${1}" in
@@ -56,6 +59,10 @@ while [[ ${1} ]]; do
       ;;
     -d|--ndbservers)
       NRDBSERVERS=${2}
+      shift
+      ;;
+    -r|--rocksdbengine)
+      USE_ROCKSDB=${2}
       shift
       ;;
     -s|--secondaries)
@@ -80,6 +87,10 @@ while [[ ${1} ]]; do
       ;;
     -j|--jwt-secret)
       JWT_SECRET=${2}
+      shift
+      ;;
+    -q|--src-dir)
+      SRC_DIR=${2}
       shift
       ;;
     -x|--xterm)

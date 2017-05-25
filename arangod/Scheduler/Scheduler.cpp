@@ -34,11 +34,15 @@
 #include "Basics/MutexLocker.h"
 #include "Basics/StringUtils.h"
 #include "Basics/Thread.h"
+#include "Basics/WorkMonitor.h"
+#include "GeneralServer/RestHandler.h"
 #include "Logger/Logger.h"
 #include "Rest/GeneralResponse.h"
 #include "Scheduler/JobGuard.h"
 #include "Scheduler/JobQueue.h"
 #include "Scheduler/Task.h"
+
+#include <thread>
 
 using namespace arangodb;
 using namespace arangodb::basics;
@@ -136,9 +140,14 @@ class SchedulerThread : public Thread {
 
       LOG_TOPIC(DEBUG, Logger::THREADS) << "stopped ("
                                         << _scheduler->infoStatus() << ")";
+    } catch (std::exception const& ex) {
+      LOG_TOPIC(ERR, Logger::THREADS)
+          << "restarting scheduler loop after caught exception: " << ex.what();
+      _scheduler->decRunning();
+      _scheduler->startNewThread();
     } catch (...) {
       LOG_TOPIC(ERR, Logger::THREADS)
-          << "scheduler loop caught an error, restarting";
+          << "restarting scheduler loop after unknown exception";
       _scheduler->decRunning();
       _scheduler->startNewThread();
     }
@@ -212,7 +221,7 @@ bool Scheduler::start(ConditionVariable* cv) {
   TRI_ASSERT(_nrMinimum <= _nrDesired);
   TRI_ASSERT(_nrDesired <= _nrMaximum);
 
-  for (size_t i = 0; i < (size_t)_nrMinimum; ++i) {
+  for (uint64_t i = 0; i < _nrMinimum; ++i) {
     startNewThread();
   }
 
@@ -328,6 +337,10 @@ bool Scheduler::hasQueueCapacity() const {
 }
 
 bool Scheduler::queue(std::unique_ptr<Job> job) {
+  auto jobQueue = _jobQueue.get();
+  auto queueSize = (jobQueue == nullptr) ? 0 : jobQueue->queueSize();
+  RequestStatistics::SET_QUEUE_START(job->_handler->statistics(), queueSize);
+
   return _jobQueue->queue(std::move(job));
 }
 
@@ -386,6 +399,10 @@ void Scheduler::rebalanceThreads() {
   }
 
   while (_nrRunning < _nrWorking + _nrQueued + _nrMinimum) {
+    if (_stopping) {
+      // do not start any new threads in case we are already shutting down
+      break;
+    }
     startNewThread();
     usleep(5000);
   }
@@ -415,11 +432,26 @@ void Scheduler::shutdown() {
   bool done = false;
 
   while (!done) {
-    MUTEX_LOCKER(guard, _threadsLock);
-    done = _threads.empty();
+    {
+      MUTEX_LOCKER(guard, _threadsLock);
+      done = _threads.empty();
+    }
+    std::this_thread::yield();
   }
 
   deleteOldThreads();
+
+  // remove all queued work descriptions in the work monitor first
+  // before freeing the io service a few lines later
+  // this is required because the work descriptions may have captured
+  // HttpCommTasks etc. which have references to the io service and
+  // access it in their destructors
+  // so the proper shutdown order is:
+  // - stop accepting further requests (already done by GeneralServerFeature::stop)
+  // - cancel all running scheduler tasks
+  // - free all work descriptions in work monitor
+  // - delete io service
+  WorkMonitor::clearWorkDescriptions();
 
   _managerService.reset();
   _ioService.reset();

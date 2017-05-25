@@ -259,11 +259,13 @@ V8Task::callbackFunction() {
 
     // now do the work:
     work();
-
-    if (_periodic) {
+    
+    if (_periodic && !SchedulerFeature::SCHEDULER->isStopping()) {
       _timer->expires_from_now(_interval);
       _timer->async_wait(callbackFunction());
     } else {
+      // in case of one-off tasks or in case of a shutdown, simply
+      // remove the task from the list
       V8Task::unregisterTask(_id, false);
     }
   };
@@ -281,6 +283,9 @@ void V8Task::start(boost::asio::io_service* ioService) {
 }
 
 void V8Task::cancel() {
+  // this will prevent the task from dispatching itself again
+  _periodic = false;
+
   boost::system::error_code ec;
   _timer->cancel(ec);
 }

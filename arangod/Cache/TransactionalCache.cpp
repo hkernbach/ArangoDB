@@ -32,19 +32,18 @@
 #include "Cache/State.h"
 #include "Cache/Table.h"
 #include "Cache/TransactionalBucket.h"
+#include "Logger/Logger.h"
 
 #include <stdint.h>
 #include <atomic>
 #include <chrono>
 #include <list>
 
-#include <iostream>
-
 using namespace arangodb::cache;
 
 Finding TransactionalCache::find(void const* key, uint32_t keySize) {
   TRI_ASSERT(key != nullptr);
-  Finding result(nullptr);
+  Finding result;
   uint32_t hash = hashKey(key, keySize);
 
   bool ok;
@@ -53,7 +52,7 @@ Finding TransactionalCache::find(void const* key, uint32_t keySize) {
   std::tie(ok, bucket, source) = getBucket(hash, Cache::triesFast);
 
   if (ok) {
-    result.reset(bucket->find(hash, key, keySize));
+    result.set(bucket->find(hash, key, keySize));
     recordStat(result.found() ? Stat::findHit : Stat::findMiss);
     bucket->unlock();
     endOperation();
@@ -107,6 +106,7 @@ bool TransactionalCache::insert(CachedValue* value) {
           if (!eviction) {
             maybeMigrate = source->slotFilled();
           }
+          maybeMigrate |= reportInsert(eviction);
         } else {
           requestGrow();  // let function do the hard work
         }

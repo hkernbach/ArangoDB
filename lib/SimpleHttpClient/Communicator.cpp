@@ -64,6 +64,8 @@ static int dumb_socketpair(SOCKET socks[2], int make_overlapped) {
     struct sockaddr_in inaddr;
     struct sockaddr addr;
   } a;
+  memset(&a, 0, sizeof(a)); // clear memory before using the struct!
+
   SOCKET listener;
   int e;
   socklen_t addrlen = sizeof(a.inaddr);
@@ -392,7 +394,7 @@ void Communicator::handleResult(CURL* handle, CURLcode rc) {
 
   switch (rc) {
     case CURLE_OK: {
-      long httpStatusCode = 200;
+      int httpStatusCode = 200;
       curl_easy_getinfo(handle, CURLINFO_RESPONSE_CODE, &httpStatusCode);
 
       std::unique_ptr<GeneralResponse> response(

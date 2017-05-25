@@ -62,6 +62,8 @@ Cache::Cache(ConstructionGuard guard, Manager* manager, Metadata metadata,
       _table(table),
       _bucketClearer(bucketClearer(&_metadata)),
       _slotsPerBucket(slotsPerBucket),
+      _insertsTotal(0),
+      _insertEvictions(0),
       _openOperations(0),
       _migrateRequestTime(std::chrono::steady_clock::now()),
       _resizeRequestTime(std::chrono::steady_clock::now()) {
@@ -111,6 +113,15 @@ uint64_t Cache::usage() {
   }
   _state.unlock();
   return usage;
+}
+
+void Cache::sizeHint(uint64_t numElements) {
+  uint64_t numBuckets = static_cast<uint64_t>(static_cast<double>(numElements)
+    / (static_cast<double>(_slotsPerBucket) * Table::idealUpperRatio));
+  uint32_t requestedLogSize = 0;
+  for (; (static_cast<uint64_t>(1) << requestedLogSize) < numBuckets;
+    requestedLogSize++) {}
+  requestMigrate(requestedLogSize);
 }
 
 std::pair<double, double> Cache::hitRates() {
@@ -163,6 +174,27 @@ bool Cache::isResizing() {
   return resizing;
 }
 
+bool Cache::isMigrating() {
+  bool migrating = false;
+  _state.lock();
+  if (isOperational()) {
+    _metadata.lock();
+    migrating = _metadata.isSet(State::Flag::migrating);
+    _metadata.unlock();
+    _state.unlock();
+  }
+
+  return migrating;
+}
+
+bool Cache::isShutdown() {
+  _state.lock();
+  bool shutdown = !isOperational();
+  _state.unlock();
+
+  return shutdown;
+}
+
 void Cache::destroy(std::shared_ptr<Cache> cache) {
   if (cache.get() != nullptr) {
     cache->shutdown();
@@ -179,7 +211,7 @@ void Cache::startOperation() { ++_openOperations; }
 
 void Cache::endOperation() { --_openOperations; }
 
-bool Cache::isMigrating() const {
+bool Cache::isMigratingLocked() const {
   TRI_ASSERT(_state.isLocked());
   return _state.isSet(State::Flag::migrating);
 }
@@ -206,7 +238,7 @@ void Cache::requestGrow() {
 void Cache::requestMigrate(uint32_t requestedLogSize) {
   bool ok = _state.lock(Cache::triesGuarantee);
   if (ok) {
-    if (!isMigrating() &&
+    if (!isMigratingLocked() &&
         (std::chrono::steady_clock::now() > _migrateRequestTime)) {
       _metadata.lock();
       ok = !_metadata.isSet(State::Flag::migrating) &&
@@ -265,14 +297,33 @@ void Cache::recordStat(Stat stat) {
   }
 }
 
+bool Cache::reportInsert(bool hadEviction) {
+  bool shouldMigrate = false;
+  if (hadEviction) {
+    _insertEvictions++;
+  }
+  if (((++_insertsTotal) & _evictionMask) == 0) {
+    if (_insertEvictions.load() > _evictionThreshold) {
+      shouldMigrate = true;
+      bool ok = _state.lock(triesGuarantee);
+      if (ok) {
+        _table->signalEvictions();
+        _state.unlock();
+      }
+    }
+    _insertEvictions = 0;
+  }
+
+  return shouldMigrate;
+}
+
 Metadata* Cache::metadata() { return &_metadata; }
 
 std::shared_ptr<Table> Cache::table() { return _table; }
 
 void Cache::beginShutdown() {
   _state.lock();
-  if (!_state.isSet(State::Flag::shutdown) &&
-      !_state.isSet(State::Flag::shuttingDown)) {
+  if (!_state.isSet(State::Flag::shutdown, State::Flag::shuttingDown)) {
     _state.toggleFlag(State::Flag::shuttingDown);
   }
   _state.unlock();

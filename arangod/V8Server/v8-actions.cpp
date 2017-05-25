@@ -346,6 +346,13 @@ static v8::Handle<v8::Object> RequestCppToV8(v8::Isolate* isolate,
   //        "user" : "authenticatedUser"
   //      }
 
+  TRI_GET_GLOBAL_STRING(AuthorizedKey);
+  if (request->authorized()) {
+    req->ForceSet(AuthorizedKey, v8::True(isolate));
+  } else {
+    req->ForceSet(AuthorizedKey, v8::False(isolate));
+  }
+
   // create user or null
   std::string const& user = request->user();
 
@@ -585,7 +592,7 @@ static void ResponseV8ToCpp(v8::Isolate* isolate, TRI_v8_global_t const* v8g,
         }
         break;
 
-      case Endpoint::TransportType::VPP:
+      case Endpoint::TransportType::VST:
         response->setHeader(arangodb::StaticStrings::ContentTypeHeader,
                             contentType);
         break;
@@ -673,7 +680,7 @@ static void ResponseV8ToCpp(v8::Isolate* isolate, TRI_v8_global_t const* v8g,
         }
       } break;
 
-      case Endpoint::TransportType::VPP: {
+      case Endpoint::TransportType::VST: {
         VPackBuilder builder;
 
         v8::Handle<v8::Value> v8Body = res->Get(BodyKey);
@@ -693,7 +700,7 @@ static void ResponseV8ToCpp(v8::Isolate* isolate, TRI_v8_global_t const* v8g,
                 transformations->Get(v8::Integer::New(isolate, i));
             std::string name = TRI_ObjectToString(transformator);
 
-            // we do not decode in the vpp case
+            // we do not decode in the vst case
             // check available transformations
             if (name == "base64decode") {
               out = StringUtils::decodeBase64(out);
@@ -776,7 +783,7 @@ static void ResponseV8ToCpp(v8::Isolate* isolate, TRI_v8_global_t const* v8g,
         TRI_FreeString(TRI_UNKNOWN_MEM_ZONE, content);
       } break;
 
-      case Endpoint::TransportType::VPP: {
+      case Endpoint::TransportType::VST: {
         VPackBuilder builder;
         builder.add(
             VPackValuePair(reinterpret_cast<uint8_t const*>(content), length));
@@ -841,7 +848,7 @@ static void ResponseV8ToCpp(v8::Isolate* isolate, TRI_v8_global_t const* v8g,
         }
       } break;
 
-      case Endpoint::TransportType::VPP:
+      case Endpoint::TransportType::VST:
         break;
 
       default:
@@ -1145,7 +1152,7 @@ static void JS_RawRequestBody(v8::FunctionCallbackInfo<v8::Value> const& args) {
           }
         } break;
 
-        case Endpoint::TransportType::VPP: {
+        case Endpoint::TransportType::VST: {
           if (request != nullptr) {
             auto slice = request->payload();
             V8Buffer* buffer = nullptr;

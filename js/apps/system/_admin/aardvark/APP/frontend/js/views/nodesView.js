@@ -12,7 +12,9 @@
 
     events: {
       'click #nodesContent .coords-nodes .pure-table-row': 'navigateToNode',
+      'click #nodesContent .dbs-nodes .pure-table-row': 'navigateToNode',
       'click #nodesContent .coords-nodes .pure-table-row .fa-trash-o': 'deleteNode',
+      'click #nodesContent .dbs-nodes .pure-table-row .fa-trash-o': 'deleteNode',
       'click #addCoord': 'addCoord',
       'click #removeCoord': 'removeCoord',
       'click #addDBs': 'addDBs',
@@ -20,6 +22,14 @@
       'click .abortClusterPlan': 'abortClusterPlanModal',
       'keyup #plannedCoords': 'checkKey',
       'keyup #plannedDBs': 'checkKey'
+    },
+
+    remove: function () {
+      this.$el.empty().off(); /* off to unbind the events */
+      this.stopListening();
+      this.unbind();
+      delete this.el;
+      return this;
     },
 
     checkKey: function (e) {
@@ -121,11 +131,12 @@
     },
 
     navigateToNode: function (elem) {
+      var name = $(elem.currentTarget).attr('node').slice(0, -5);
+
       if ($(elem.currentTarget).hasClass('noHover')) {
         return;
       }
 
-      var name = $(elem.currentTarget).attr('node').slice(0, -5);
       window.App.navigate('#node/' + encodeURIComponent(name), {trigger: true});
     },
 
@@ -290,7 +301,6 @@
         this.setCoordSize(coords);
         this.setDBsSize(dbs);
       } catch (ignore) {
-        console.log(ignore);
         arangoHelper.arangoError('Plan', 'Could not abort Cluster Plan');
       }
     },

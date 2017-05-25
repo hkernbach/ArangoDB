@@ -1,5 +1,5 @@
 /*jshint globalstrict:false, strict:false, unused: false */
-/*global fail, assertEqual, assertTrue, assertFalse, assertNull, arango, ARGUMENTS */
+/*global fail, assertEqual, assertTrue, assertFalse, assertNull, assertNotNull, arango, ARGUMENTS */
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief test the replication
@@ -50,10 +50,12 @@ function ReplicationSuite() {
 
   var connectToMaster = function() {
     arango.reconnect(masterEndpoint, db._name(), "root", "");
+    db._flushCache();
   };
 
   var connectToSlave = function() {
     arango.reconnect(slaveEndpoint, db._name(), "root", "");
+    db._flushCache();
   };
 
   var collectionChecksum = function(name) {
@@ -99,43 +101,22 @@ function ReplicationSuite() {
 
     internal.wait(1, false);
 
-    var includeSystem = true;
-    var restrictType = "";
-    var restrictCollections = [];
-    applierConfiguration = applierConfiguration || { };
-
-    if (typeof applierConfiguration === 'object') {
-      if (applierConfiguration.hasOwnProperty("includeSystem")) {
-        includeSystem = applierConfiguration.includeSystem;
-      }
-      if (applierConfiguration.hasOwnProperty("restrictType")) {
-        restrictType = applierConfiguration.restrictType;
-      }
-      if (applierConfiguration.hasOwnProperty("restrictCollections")) {
-        restrictCollections = applierConfiguration.restrictCollections;
-      }
-    }
-
-    var keepBarrier = false;
-    if (applierConfiguration.hasOwnProperty("keepBarrier")) {
-      keepBarrier = applierConfiguration.keepBarrier; 
-    }
-
     var syncResult = replication.sync({
       endpoint: masterEndpoint,
       username: "root",
       password: "",
       verbose: true,
-      includeSystem: includeSystem,
-      restrictType: restrictType,
-      restrictCollections: restrictCollections,
-      keepBarrier: keepBarrier
+      includeSystem: false,
+      keepBarrier: false
     });
 
     assertTrue(syncResult.hasOwnProperty('lastLogTick'));
 
     connectToMaster();
     masterFunc2(state);
+
+    // use lastLogTick as of now
+    state.lastLogTick = replication.logger.state().state.lastLogTick;
 
     applierConfiguration = applierConfiguration || {};
     applierConfiguration.endpoint = masterEndpoint;
@@ -149,22 +130,24 @@ function ReplicationSuite() {
     connectToSlave();
 
     replication.applier.properties(applierConfiguration);
-    if (keepBarrier) {
-      replication.applier.start(syncResult.lastLogTick, syncResult.barrierId);
-    }
-    else {
-      replication.applier.start(syncResult.lastLogTick);
-    }
+    replication.applier.start(syncResult.lastLogTick);
 
-    var printed = false;
+    var printed = false, handled = false;
 
     while (true) {
-      if (!slaveFuncOngoing(state)) {
-        return;
+      if (!handled) {
+        var r = slaveFuncOngoing(state);
+        if (r === "wait") {
+          // special return code that tells us to hang on
+          internal.wait(0.5, false);
+          continue;
+        }
+
+        handled = true;
       }
 
       var slaveState = replication.applier.state();
-      
+
       if (slaveState.state.lastError.errorNum > 0) {
         console.log("slave has errored:", JSON.stringify(slaveState.state.lastError));
         break;
@@ -175,13 +158,13 @@ function ReplicationSuite() {
         break;
       }
 
-      if (compareTicks(slaveState.state.lastAppliedContinuousTick, syncResult.lastLogTick) >= 0 ||
-          compareTicks(slaveState.state.lastProcessedContinuousTick, syncResult.lastLogTick) >= 0) { // ||
-        //          compareTicks(slaveState.state.lastAvailableContinuousTick, syncResult.lastLogTick) > 0) {
-        console.log("slave has caught up. syncResult.lastLogTick:", syncResult.lastLogTick, "slaveState.lastAppliedContinuousTick:", slaveState.state.lastAppliedContinuousTick, "slaveState.lastProcessedContinuousTick:", slaveState.state.lastProcessedContinuousTick);
+      if (compareTicks(slaveState.state.lastAppliedContinuousTick, state.lastLogTick) >= 0 ||
+          compareTicks(slaveState.state.lastProcessedContinuousTick, state.lastLogTick) >= 0) { // ||
+       //          compareTicks(slaveState.state.lastAvailableContinuousTick, syncResult.lastLogTick) > 0) {
+        console.log("slave has caught up. state.lastLogTick:", state.lastLogTick, "slaveState.lastAppliedContinuousTick:", slaveState.state.lastAppliedContinuousTick, "slaveState.lastProcessedContinuousTick:", slaveState.state.lastProcessedContinuousTick);
         break;
       }
-
+        
       if (!printed) {
         console.log("waiting for slave to catch up");
         printed = true;
@@ -231,33 +214,26 @@ function ReplicationSuite() {
       db._drop(cn);
       db._drop(cn2);
     },
-
+    
     ////////////////////////////////////////////////////////////////////////////////
-    /// @brief test require from present
+    /// @brief test collection creation
     ////////////////////////////////////////////////////////////////////////////////
 
-    testRequireFromPresentFalse: function() {
+    testCreateCollection: function() {
       connectToMaster();
 
       compare(
         function(state) {
-          db._create(cn);
         },
 
         function(state) {
-          // flush the wal logs on the master so the start tick is not available
-          // anymore when we start replicating
-          for (var i = 0; i < 30; ++i) {
+          db._create(cn);
+          for (var i = 0; i < 100; ++i) {
             db._collection(cn).save({
               value: i
             });
-            internal.wal.flush(); //true, true);
           }
-          db._collection(cn).save({
-            value: i
-          });
           internal.wal.flush(true, true);
-          internal.wait(6, false);
         },
 
         function(state) {
@@ -265,99 +241,154 @@ function ReplicationSuite() {
         },
 
         function(state) {
-          // data loss on slave!
-          assertTrue(db._collection(cn).count() < 25);
-        }, {
-          requireFromPresent: false,
-          keepBarrier: false
-        }
-      );
-    },
-    
-    ////////////////////////////////////////////////////////////////////////////////
-    /// @brief test require from present, no barrier
-    ////////////////////////////////////////////////////////////////////////////////
-
-    testRequireFromPresentTrueNoBarrier : function () {
-      connectToMaster();
-
-      compare(
-        function (state) {
-          db._create(cn);
-        },
-
-        function (state) {
-          // flush the wal logs on the master so the start tick is not available
-          // anymore when we start replicating
-          for (var i = 0; i < 30; ++i) {
-            db._collection(cn).save({ value: i });
-            internal.wal.flush(); //true, true);
-          }
-          internal.wal.flush(true, true);
-          internal.wait(6, false);
-        },
-
-        function (state) {
-          // wait for slave applier to have started and detect the mess
-          return replication.applier.state().state.running;
-        },
-
-        function (state) {
-          // slave should have failed
-          assertFalse(replication.applier.state().state.running);
-          // data loss on slave!
-          assertTrue(db._collection(cn).count() < 25);
-        },
-        { 
-          requireFromPresent: true,
-          keepBarrier: false
+          assertTrue(db._collection(cn).count() === 100);
         }
       );
     },
 
     ////////////////////////////////////////////////////////////////////////////////
-    /// @brief test require from present
+    /// @brief test collection dropping
     ////////////////////////////////////////////////////////////////////////////////
 
-    testRequireFromPresentTrue : function () {
+    testDropCollection: function() {
       connectToMaster();
 
       compare(
-        function (state) {
+        function(state) {
+        },
+
+        function(state) {
           db._create(cn);
-        },
-
-        function (state) {
-          // flush the wal logs on the master so the start tick is not available
-          // anymore when we start replicating
-          for (var i = 0; i < 30; ++i) {
-            db._collection(cn).save({ value: i });
-            internal.wal.flush(); //true, true);
+          for (var i = 0; i < 100; ++i) {
+            db._collection(cn).save({
+              value: i
+            });
           }
+          db._drop(cn);
           internal.wal.flush(true, true);
-          internal.wait(6, false);
-          
-          state.checksum = collectionChecksum(cn);
-          state.count = collectionCount(cn);
-          assertEqual(30, state.count);
         },
 
-        function (state) {
-          // wait for slave applier to have started and run
-          internal.wait(5, false);
-
-          // slave should not have stopped
-          assertTrue(replication.applier.state().state.running);
+        function(state) {
           return true;
         },
 
-        function (state) {
-          assertEqual(state.count, collectionCount(cn));
-          assertEqual(state.checksum, collectionChecksum(cn));
+        function(state) {
+          assertNull(db._collection(cn));
+        }
+      );
+    },
+
+    ////////////////////////////////////////////////////////////////////////////////
+    /// @brief test index creation
+    ////////////////////////////////////////////////////////////////////////////////
+
+    testCreateIndex: function() {
+      connectToMaster();
+
+      compare(
+        function(state) {
         },
-        { 
-          requireFromPresent: true,
-          keepBarrier: true 
+
+        function(state) {
+          db._create(cn);
+          db._collection(cn).ensureIndex({ type: "hash", fields: ["value"] });
+        },
+
+        function(state) {
+          return true;
+        },
+
+        function(state) {
+          var col = db._collection(cn);
+          assertNotNull(col, "collection does not exist");
+          var idx = col.getIndexes();
+          assertEqual(2, idx.length);
+          assertEqual("primary", idx[0].type);
+          assertEqual("hash", idx[1].type);
+          assertEqual(["value"], idx[1].fields);
+        }
+      );
+    },
+
+    ////////////////////////////////////////////////////////////////////////////////
+    /// @brief test index dropping
+    ////////////////////////////////////////////////////////////////////////////////
+
+    testDropIndex: function() {
+      connectToMaster();
+
+      compare(
+        function(state) {
+        },
+
+        function(state) {
+          db._create(cn);
+          var idx = db._collection(cn).ensureIndex({ type: "hash", fields: ["value"] });
+          db._collection(cn).dropIndex(idx);
+        },
+
+        function(state) {
+          return true;
+        },
+
+        function(state) {
+          var idx = db._collection(cn).getIndexes();
+          assertEqual(1, idx.length);
+          assertEqual("primary", idx[0].type);
+        }
+      );
+    },
+
+    ////////////////////////////////////////////////////////////////////////////////
+    /// @brief test renaming
+    ////////////////////////////////////////////////////////////////////////////////
+
+    testRenameCollection: function() {
+      connectToMaster();
+
+      compare(
+        function(state) {
+        },
+
+        function(state) {
+          db._create(cn);
+          db._collection(cn).rename(cn + "Renamed");
+        },
+
+        function(state) {
+          return true;
+        },
+
+        function(state) {
+          assertNull(db._collection(cn));
+          assertNotNull(db._collection(cn + "Renamed"));
+        }
+      );
+    },
+
+    ////////////////////////////////////////////////////////////////////////////////
+    /// @brief test renaming
+    ////////////////////////////////////////////////////////////////////////////////
+
+    testChangeCollection: function() {
+      connectToMaster();
+
+      compare(
+        function(state) {
+        },
+
+        function(state) {
+          db._create(cn);
+          assertFalse(db._collection(cn).properties().waitForSync);
+          db._collection(cn).properties({ waitForSync: true });
+        },
+
+        function(state) {
+          return true;
+        },
+
+        function(state) {
+          assertTrue(db._collection(cn).properties().waitForSync);
         }
       );
     },
@@ -386,10 +417,14 @@ function ReplicationSuite() {
 
               for (var i = 0; i < 10; ++i) {
                 c.save({
-                  test1: i
+                  test1: i,
+                  type: "longTransactionBlocking",
+                  coll: "UnitTestsReplication"
                 });
                 c.save({
-                  test2: i
+                  test2: i,
+                  type: "longTransactionBlocking",
+                  coll: "UnitTestsReplication"
                 });
 
                 // intentionally delay the transaction
@@ -452,14 +487,18 @@ function ReplicationSuite() {
 
               for (var i = 0; i < 10; ++i) {
                 c.save({
-                  test1: i
+                  test1: i,
+                  type: "longTransactionAsync",
+                  coll: "UnitTestsReplication"
                 });
                 c.save({
-                  test2: i
+                  test2: i,
+                  type: "longTransactionAsync",
+                  coll: "UnitTestsReplication"
                 });
 
                 // intentionally delay the transaction
-                wait(0.75, false);
+                wait(3.0, false);
               }
             },
             params: {
@@ -468,7 +507,7 @@ function ReplicationSuite() {
           });
 
           state.task = require("@arangodb/tasks").register({
-            name: "replication-test",
+            name: "replication-test-async",
             command: String(func),
             params: {
               cn: cn
@@ -483,21 +522,21 @@ function ReplicationSuite() {
           try {
             require("@arangodb/tasks").get(state.task);
             // task exists
+            connectToSlave();
+            return "wait";
           } catch (err) {
             // task does not exist. we're done
+            state.lastLogTick = replication.logger.state().state.lastLogTick;
             state.checksum = collectionChecksum(cn);
             state.count = collectionCount(cn);
             assertEqual(20, state.count);
             connectToSlave();
-            return false;
+            return true;
           }
-
-          connectToSlave();
-          internal.wait(0.5, false);
-          return true;
         },
 
         function(state) {
+          assertTrue(state.hasOwnProperty("count"));
           assertEqual(state.count, collectionCount(cn));
         }
       );
@@ -527,10 +566,14 @@ function ReplicationSuite() {
 
               for (var i = 0; i < 10; ++i) {
                 c.save({
-                  test1: i
+                  test1: i,
+                  type: "longTransactionAsyncWithSlaveRestarts",
+                  coll: "UnitTestsReplication"
                 });
                 c.save({
-                  test2: i
+                  test2: i,
+                  type: "longTransactionAsyncWithSlaveRestarts",
+                  coll: "UnitTestsReplication"
                 });
 
                 // intentionally delay the transaction
@@ -543,7 +586,7 @@ function ReplicationSuite() {
           });
 
           state.task = require("@arangodb/tasks").register({
-            name: "replication-test",
+            name: "replication-test-async-with-restart",
             command: String(func),
             params: {
               cn: cn
@@ -561,21 +604,23 @@ function ReplicationSuite() {
           try {
             require("@arangodb/tasks").get(state.task);
             // task exists
+            connectToSlave();
+
+            internal.wait(0.5, false);
+            replication.applier.start();
+            assertTrue(replication.applier.state().state.running);
+            return "wait";
           } catch (err) {
-            // task does not exist. we're done
+            // task does not exist anymore. we're done
+            state.lastLogTick = replication.logger.state().state.lastLogTick;
             state.checksum = collectionChecksum(cn);
             state.count = collectionCount(cn);
             assertEqual(20, state.count);
             connectToSlave();
-            return false;
+            replication.applier.start();
+            assertTrue(replication.applier.state().state.running);
+            return true;
           }
-
-          connectToSlave();
-
-          internal.wait(0.5, false);
-          replication.applier.start();
-          assertTrue(replication.applier.state().state.running);
-          return true;
         },
 
         function(state) {

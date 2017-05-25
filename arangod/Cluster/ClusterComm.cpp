@@ -33,7 +33,6 @@
 #include "Scheduler/JobGuard.h"
 #include "Scheduler/SchedulerFeature.h"
 #include "SimpleHttpClient/ConnectionManager.h"
-#include "SimpleHttpClient/SimpleHttpClient.h"
 #include "SimpleHttpClient/SimpleHttpCommunicatorResult.h"
 #include "Transaction/Methods.h"
 #include "VocBase/ticks.h"
@@ -118,6 +117,9 @@ void ClusterCommResult::setDestination(std::string const& dest,
   endpoint = ci->getServerEndpoint(serverID);
   if (endpoint.empty()) {
     status = CL_COMM_BACKEND_UNAVAILABLE;
+    if (serverID.find(',') != std::string::npos) {
+      TRI_ASSERT(false);
+    }
     errorMessage = "did not find endpoint of server '" + serverID + "'";
     if (logConnectionErrors) {
       LOG_TOPIC(ERR, Logger::CLUSTER)
@@ -262,7 +264,7 @@ std::shared_ptr<ClusterComm> ClusterComm::instance() {
         break;
       }
     }
-    // Now _state is either 0 (in which case we have changed _theInstanceInit
+    // Now state is either 0 (in which case we have changed _theInstanceInit
     // to 1, or is 1, in which case somebody else has set it to 1 and is working
     // to initialize the singleton, or is 2, in which case somebody else has 
     // done all the work and we are done:
@@ -577,7 +579,7 @@ bool ClusterComm::match(ClientTransactionID const& clientTransactionID,
 /// from deleting `result` and `answer`.
 ////////////////////////////////////////////////////////////////////////////////
 
-ClusterCommResult const ClusterComm::enquire(Ticket const ticketId) {
+ClusterCommResult const ClusterComm::enquire(communicator::Ticket const ticketId) {
   ResponseIterator i;
   AsyncResponse response;
 
@@ -614,7 +616,7 @@ ClusterCommResult const ClusterComm::enquire(Ticket const ticketId) {
 
 ClusterCommResult const ClusterComm::wait(
     ClientTransactionID const& clientTransactionID,
-    CoordTransactionID const coordTransactionID, Ticket const ticketId,
+    CoordTransactionID const coordTransactionID, communicator::Ticket const ticketId,
     ShardID const& shardID, ClusterCommTimeout timeout) {
 
   ResponseIterator i;
@@ -1123,6 +1125,19 @@ void ClusterComm::addAuthorization(std::unordered_map<std::string, std::string>*
   }
 }
 
+std::vector<communicator::Ticket> ClusterComm::activeServerTickets(std::vector<std::string> const& servers) {
+  std::vector<communicator::Ticket> tickets;
+  CONDITION_LOCKER(locker, somethingReceived);
+  for (auto const& it: responses) {
+    for (auto const& server: servers) {
+      if (it.second.result && it.second.result->serverID == server) {
+        tickets.push_back(it.first);
+      }
+    }
+  }
+  return tickets;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief ClusterComm main loop
 ////////////////////////////////////////////////////////////////////////////////
@@ -1130,18 +1145,10 @@ void ClusterComm::addAuthorization(std::unordered_map<std::string, std::string>*
 void ClusterCommThread::abortRequestsToFailedServers() {
   ClusterInfo* ci = ClusterInfo::instance();
   auto failedServers = ci->getFailedServers();
-  std::vector<std::string> failedServerEndpoints;
-  failedServerEndpoints.reserve(failedServers.size());
-
-  for (auto const& failedServer: failedServers) {
-    failedServerEndpoints.push_back(_cc->createCommunicatorDestination(ci->getServerEndpoint(failedServer), "/").url());
-  }
-
-  for (auto const& request: _cc->communicator()->requestsInProgress()) {
-    for (auto const& failedServerEndpoint: failedServerEndpoints) {
-      if (request->_destination.url().substr(0, failedServerEndpoint.length()) == failedServerEndpoint) {
-        _cc->communicator()->abortRequest(request->_ticketId);
-      }
+  if (failedServers.size() > 0) {
+    auto ticketIds = _cc->activeServerTickets(failedServers);
+    for (auto const& ticketId: ticketIds) {
+      _cc->communicator()->abortRequest(ticketId);
     }
   }
 }

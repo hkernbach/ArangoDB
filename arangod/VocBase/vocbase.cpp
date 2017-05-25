@@ -51,6 +51,7 @@
 #include "RestServer/DatabaseFeature.h"
 #include "RestServer/ViewTypesFeature.h"
 #include "StorageEngine/EngineSelectorFeature.h"
+#include "StorageEngine/PhysicalCollection.h"
 #include "StorageEngine/StorageEngine.h"
 #include "Utils/CollectionKeysRepository.h"
 #include "Utils/CursorRepository.h"
@@ -58,7 +59,6 @@
 #include "V8Server/v8-user-structures.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/LogicalView.h"
-#include "VocBase/PhysicalCollection.h"
 #include "VocBase/PhysicalView.h"
 #include "VocBase/ViewImplementation.h"
 #include "VocBase/replication-applier.h"
@@ -249,9 +249,9 @@ void TRI_vocbase_t::registerView(bool doLock,
       if (!it2.second) {
         _viewsByName.erase(name);
 
-        LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "duplicate view identifier "
-                                                << view->id() << " for name '"
-                                                << name << "'";
+        LOG_TOPIC(ERR, arangodb::Logger::FIXME)
+            << "duplicate view identifier " << view->id() << " for name '"
+            << name << "'";
 
         THROW_ARANGO_EXCEPTION(TRI_ERROR_ARANGO_DUPLICATE_IDENTIFIER);
       }
@@ -530,9 +530,9 @@ int TRI_vocbase_t::loadCollection(arangodb::LogicalCollection* collection,
   }
 
   std::string const colName(collection->name());
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "unknown collection status "
-                                          << collection->status() << " for '"
-                                          << colName << "'";
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME)
+      << "unknown collection status " << collection->status() << " for '"
+      << colName << "'";
 
   return TRI_set_errno(TRI_ERROR_INTERNAL);
 }
@@ -683,7 +683,7 @@ int TRI_vocbase_t::dropCollectionWorker(arangodb::LogicalCollection* collection,
 void TRI_vocbase_t::shutdown() {
   // stop replication
   if (_replicationApplier != nullptr) {
-    _replicationApplier->stop(false);
+    _replicationApplier->stop(false, true);
   }
 
   // mark all cursors as deleted so underlying collections can be freed soon
@@ -960,8 +960,7 @@ arangodb::LogicalCollection* TRI_vocbase_t::createCollection(
   READ_LOCKER(readLocker, _inventoryLock);
 
   // note: cid may be modified by this function call
-  arangodb::LogicalCollection* collection =
-      createCollectionWorker(parameters);
+  arangodb::LogicalCollection* collection = createCollectionWorker(parameters);
 
   if (collection == nullptr) {
     // something went wrong... must not continue
@@ -1417,7 +1416,7 @@ int TRI_vocbase_t::dropView(std::shared_ptr<arangodb::LogicalView> view) {
   view->updateProperties(b.slice(), doSync);
 */
   unregisterView(view);
-  
+
   StorageEngine* engine = EngineSelectorFeature::ENGINE;
   engine->dropView(this, view.get());
 
@@ -1548,6 +1547,27 @@ TRI_vocbase_t::getReplicationClients() {
   return result;
 }
 
+void TRI_vocbase_t::garbageCollectReplicationClients(double ttl) {
+  WRITE_LOCKER(writeLocker, _replicationClientsLock);
+
+  try {
+    double now = TRI_microtime();
+    auto it = _replicationClients.cbegin();
+    while (it != _replicationClients.cend()) {
+      double lastUpdate = it->second.first;
+      double diff = now - lastUpdate;
+      if (diff > ttl) {
+        it = _replicationClients.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  } catch (...) {
+    // silently fail...
+    // all we would be missing is the progress information of a slave
+  }
+}
+
 std::vector<std::shared_ptr<arangodb::LogicalView>> TRI_vocbase_t::views() {
   std::vector<std::shared_ptr<arangodb::LogicalView>> views;
 
@@ -1559,6 +1579,21 @@ std::vector<std::shared_ptr<arangodb::LogicalView>> TRI_vocbase_t::views() {
     }
   }
   return views;
+}
+
+void TRI_vocbase_t::processCollections(
+    std::function<void(LogicalCollection*)> const& cb, bool includeDeleted) {
+  READ_LOCKER(readLocker, _collectionsLock);
+
+  if (includeDeleted) {
+    for (auto const& it : _collections) {
+      cb(it);
+    }
+  } else {
+    for (auto const& it : _collectionsById) {
+      cb(it.second);
+    }
+  }
 }
 
 std::vector<arangodb::LogicalCollection*> TRI_vocbase_t::collections(

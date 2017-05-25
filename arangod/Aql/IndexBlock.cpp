@@ -32,6 +32,7 @@
 #include "Basics/Exceptions.h"
 #include "Basics/ScopeGuard.h"
 #include "Basics/StaticStrings.h"
+#include "Cluster/ServerState.h"
 #include "StorageEngine/DocumentIdentifierToken.h"
 #include "Utils/OperationCursor.h"
 #include "V8/v8-globals.h"
@@ -417,7 +418,7 @@ bool IndexBlock::skipIndex(size_t atMost) {
 // this is called every time we need to fetch data from the indexes
 bool IndexBlock::readIndex(
     size_t atMost,
-    std::function<void(DocumentIdentifierToken const&)>& callback) {
+    IndexIterator::TokenCallback const& callback) {
   DEBUG_BEGIN_BLOCK();
   // this is called every time we want to read the index.
   // For the primary key index, this only reads the index once, and never
@@ -431,12 +432,14 @@ bool IndexBlock::readIndex(
     // All indexes exhausted
     return false;
   }
-
+    
   while (_cursor != nullptr) {
     if (!_cursor->hasMore()) {
       startNextCursor();
       continue;
     }
+
+    TRI_ASSERT(atMost >= _returned);
 
     if (_returned == atMost) {
       // We have returned enough, do not check if we have more
@@ -447,7 +450,9 @@ bool IndexBlock::readIndex(
       THROW_ARANGO_EXCEPTION(TRI_ERROR_DEBUG);
     }
 
-    if (_cursor->getMore(callback, atMost - _returned)) {
+    TRI_ASSERT(atMost >= _returned);
+  
+    if (_cursor->next(callback, atMost - _returned)) {
       // We have returned enough.
       // And this index could return more.
       // We are good.
@@ -494,7 +499,7 @@ AqlItemBlock* IndexBlock::getSome(size_t atLeast, size_t atMost) {
 
   std::unique_ptr<AqlItemBlock> res;
 
-  std::function<void(DocumentIdentifierToken const& token)> callback;
+  IndexIterator::TokenCallback callback;
   if (_indexes.size() > 1) {
     // Activate uniqueness checks
     callback = [&](DocumentIdentifierToken const& token) {
@@ -585,6 +590,8 @@ AqlItemBlock* IndexBlock::getSome(size_t atLeast, size_t atMost) {
     TRI_ASSERT(!_indexesExhausted);
     AqlItemBlock* cur = _buffer.front();
     curRegs = cur->getNrRegs();
+   
+    TRI_ASSERT(atMost >= found);
 
     res.reset(requestBlock(
         atMost - found,
@@ -613,6 +620,7 @@ AqlItemBlock* IndexBlock::getSome(size_t atLeast, size_t atMost) {
     // Update statistics
     _engine->_stats.scannedIndex += _returned;
     found += _returned;
+    _returned = 0;
   } while (found < atMost);
 
   TRI_ASSERT(found == _collector.totalSize());

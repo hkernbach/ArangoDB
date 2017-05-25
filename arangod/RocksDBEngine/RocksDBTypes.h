@@ -31,20 +31,52 @@
 
 namespace arangodb {
 
+////////////////////////////////////////////////////////////////////////////////
+/// If these values change, make sure to reflect the changes in
+/// RocksDBPrefixExtractor as well.
+////////////////////////////////////////////////////////////////////////////////
 enum class RocksDBEntryType : char {
   Database = '0',
   Collection = '1',
-  Index = '2',
+  CounterValue = '2',
   Document = '3',
   PrimaryIndexValue = '4',
   EdgeIndexValue = '5',
   IndexValue = '6',
   UniqueIndexValue = '7',
   View = '8',
-  CounterValue = '9'
+  SettingsValue = '9',
+  ReplicationApplierConfig = ':',
+  FulltextIndexValue = ';',
+  GeoIndexValue = '<',
+  IndexEstimateValue = '='
 };
 
+char const* rocksDBEntryTypeName(RocksDBEntryType);
+
+enum class RocksDBLogType : char {
+  Invalid = 0,
+  DatabaseCreate = '1',
+  DatabaseDrop = '2',
+  CollectionCreate = '3',
+  CollectionDrop = '4',
+  CollectionRename = '5',
+  CollectionChange = '6',
+  IndexCreate = '7',
+  IndexDrop = '8',
+  ViewCreate = '9',
+  ViewDrop = ':',
+  ViewChange = ';',
+  BeginTransaction = '<',
+  DocumentOperationsPrologue = '=',
+  DocumentRemove = '>',
+  SinglePut = '?',
+  SingleRemove = '@'
+};
+
+char const* rocksDBLogTypeName(RocksDBLogType);
+
 rocksdb::Slice const& rocksDBSlice(RocksDBEntryType const& type);
-}
+}  // namespace arangodb
 
 #endif

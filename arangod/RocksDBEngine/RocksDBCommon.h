@@ -28,6 +28,7 @@
 
 #include "Basics/Common.h"
 #include "Basics/Result.h"
+#include "Basics/RocksDBUtils.h"
 #include "RocksDBEngine/RocksDBComparator.h"
 #include "RocksDBEngine/RocksDBEngine.h"
 #include "RocksDBEngine/RocksDBKey.h"
@@ -38,15 +39,38 @@
 #include <rocksdb/options.h>
 #include <rocksdb/status.h>
 
-namespace rocksdb {class TransactionDB;
-  class DB;
-  struct ReadOptions;
-  class Comparator;
+namespace rocksdb {
+class TransactionDB;
+class DB;
+struct ReadOptions;
+class Comparator;
 }
 
 namespace arangodb {
+
+class RocksDBOperationResult : public Result {
+ public:
+  explicit RocksDBOperationResult() : Result(), _keySize(0) {}
+
+  RocksDBOperationResult(Result const& other)
+      : _keySize(0) {
+    cloneData(other);
+  }
+
+  RocksDBOperationResult(Result&& other) : _keySize(0) {
+    cloneData(std::move(other));
+  }
+
+  uint64_t keySize() const { return _keySize; }
+  void keySize(uint64_t s) { _keySize = s; }
+
+ protected:
+  uint64_t _keySize;
+};
+
 class TransactionState;
 class RocksDBTransactionState;
+class RocksDBMethods;
 class RocksDBKeyBounds;
 class RocksDBEngine;
 namespace transaction {
@@ -54,15 +78,21 @@ class Methods;
 }
 namespace rocksutils {
 
-enum StatusHint { none, document, collection, view, index, database };
-
-arangodb::Result convertStatus(rocksdb::Status const&,
-                               StatusHint hint = StatusHint::none);
-
 uint64_t uint64FromPersistent(char const* p);
 void uint64ToPersistent(char* p, uint64_t value);
 void uint64ToPersistent(std::string& out, uint64_t value);
+
+uint32_t uint32FromPersistent(char const* p);
+void uint32ToPersistent(char* p, uint32_t value);
+void uint32ToPersistent(std::string& out, uint32_t value);
+
+uint16_t uint16FromPersistent(char const* p);
+void uint16ToPersistent(char* p, uint16_t value);
+void uint16ToPersistent(std::string& out, uint16_t value);
+
 RocksDBTransactionState* toRocksTransactionState(transaction::Methods* trx);
+RocksDBMethods* toRocksMethods(transaction::Methods* trx);
+  
 rocksdb::TransactionDB* globalRocksDB();
 RocksDBEngine* globalRocksEngine();
 arangodb::Result globalRocksDBPut(
@@ -73,25 +103,37 @@ arangodb::Result globalRocksDBRemove(
     rocksdb::Slice const& key,
     rocksdb::WriteOptions const& = rocksdb::WriteOptions{});
 
+uint64_t latestSequenceNumber();
+
+void addCollectionMapping(uint64_t, TRI_voc_tick_t, TRI_voc_cid_t);
+std::pair<TRI_voc_tick_t, TRI_voc_cid_t> mapObjectToCollection(uint64_t);
+
 /// Iterator over all keys in range and count them
 std::size_t countKeyRange(rocksdb::DB*, rocksdb::ReadOptions const&,
                           RocksDBKeyBounds const&);
 
 /// @brief helper method to remove large ranges of data
 /// Should mainly be used to implement the drop() call
-Result removeLargeRange(rocksdb::TransactionDB* db, RocksDBKeyBounds const& bounds);
+Result removeLargeRange(rocksdb::TransactionDB* db,
+                        RocksDBKeyBounds const& bounds);
 
-std::vector<std::pair<RocksDBKey,RocksDBValue>> collectionKVPairs(TRI_voc_tick_t databaseId);
-std::vector<std::pair<RocksDBKey,RocksDBValue>> indexKVPairs(TRI_voc_tick_t databaseId, TRI_voc_cid_t cid);
-std::vector<std::pair<RocksDBKey,RocksDBValue>> viewKVPairs(TRI_voc_tick_t databaseId);
+std::vector<std::pair<RocksDBKey, RocksDBValue>> collectionKVPairs(
+    TRI_voc_tick_t databaseId);
+std::vector<std::pair<RocksDBKey, RocksDBValue>> viewKVPairs(
+    TRI_voc_tick_t databaseId);
 
-// optional switch to std::function to reduce amount of includes and to avoid template
+// optional switch to std::function to reduce amount of includes and to avoid
+// template
 // this helper is not meant for transactional usage!
-template<typename T> //T is a invokeable that takes a rocksdb::Iterator*
-void iterateBounds(RocksDBKeyBounds const& bounds, T callback, rocksdb::ReadOptions const& options = rocksdb::ReadOptions{}){
+template <typename T>  // T is a invokeable that takes a rocksdb::Iterator*
+void iterateBounds(
+    RocksDBKeyBounds const& bounds, T callback,
+    rocksdb::ReadOptions const& options = rocksdb::ReadOptions{}) {
   auto cmp = globalRocksEngine()->cmp();
+  auto const end = bounds.end();
   std::unique_ptr<rocksdb::Iterator> it(globalRocksDB()->NewIterator(options));
-  for (it->Seek(bounds.start()); it->Valid() && cmp->Compare(it->key(), bounds.end()) < 0; it->Next()) {
+  for (it->Seek(bounds.start());
+       it->Valid() && cmp->Compare(it->key(), end) < 0; it->Next()) {
     callback(it.get());
   }
 }

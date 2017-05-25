@@ -814,6 +814,26 @@ function executePlanForCollections(plannedCollections) {
                 // "_" + ourselves. See below under "Drop local shards"
                 // to see the proper handling of this case. Place is marked
                 // with *** in comments.
+
+                if (shouldBeLeader) {
+                  if (!localCollections[shardName].isLeader) {
+                    collection.assumeLeadership();
+                  } else {
+                    // would not harm in assumeLeadership situation but
+                    // in its current implementation assumeLeadership will reset all
+                    // followers...so we can save some work here :S
+                    let currentFollowers = collection.getFollowers();
+                    let plannedFollowers = plannedServers.slice(1);
+                    let removedFollowers = currentFollowers.filter(follower => {
+                      return plannedServers.indexOf(follower) === -1;
+                    });
+                    removedFollowers.forEach(removedFollower => {
+                      collection.removeFollower(removedFollower);
+                    });
+                  }
+                } else {
+
+                }
                 if (!shouldBeLeader && localCollections[shardName].isLeader) {
                   collection.leaderResign();
                 } else if (shouldBeLeader &&
@@ -828,7 +848,8 @@ function executePlanForCollections(plannedCollections) {
                   'indexBuckets' ];
 
                 let properties = cmp.reduce((obj, key) => {
-                  if (localCollections[shardName][key] !== collectionInfo[key]) {
+                  if (localCollections[shardName].hasOwnProperty(key) &&
+                      localCollections[shardName][key] !== collectionInfo[key]) {
                     // property change
                     obj[key] = collectionInfo[key];
                   }
@@ -862,6 +883,7 @@ function executePlanForCollections(plannedCollections) {
                   console.debug("unloading local shard '%s/%s'",
                     database,
                     shardName);
+
                   collection.unload();
                 } else if (collectionInfo.status === ArangoCollection.STATUS_LOADED) {
                   console.debug("loading local shard '%s/%s'",
@@ -966,7 +988,8 @@ function executePlanForCollections(plannedCollections) {
 // / @brief updateCurrentForCollections
 // /////////////////////////////////////////////////////////////////////////////
 
-function updateCurrentForCollections(localErrors, currentCollections) {
+function updateCurrentForCollections(localErrors, plannedCollections,
+                                                  currentCollections) {
   let ourselves = global.ArangoServerState.id();
 
   let db = require('internal').db;
@@ -974,6 +997,8 @@ function updateCurrentForCollections(localErrors, currentCollections) {
 
   let localDatabases = getLocalDatabases();
   let database;
+
+  let shardMap = getShardMap(plannedCollections);
 
   function assembleLocalCollectionInfo(info, error) {
     if (error.collection) {
@@ -992,6 +1017,9 @@ function updateCurrentForCollections(localErrors, currentCollections) {
       Object.assign(agencyIndex, index);
       // Fix up the IDs of the indexes:
       let pos = index.id.indexOf("/");
+      if (agencyIndex.hasOwnProperty("selectivityEstimate")) {
+        delete agencyIndex.selectivityEstimate;
+      }
       if (pos >= 0) {
         agencyIndex.id = index.id.slice(pos+1);
       } else {
@@ -1077,7 +1105,7 @@ function updateCurrentForCollections(localErrors, currentCollections) {
   });
 
   // Go through all current databases and collections and remove stuff
-  // if no longer present locally:
+  // if no longer present locally, provided :
   for (database in currentCollections) {
     if (currentCollections.hasOwnProperty(database)) {
       if (localDatabases.hasOwnProperty(database)) {
@@ -1097,7 +1125,8 @@ function updateCurrentForCollections(localErrors, currentCollections) {
                 if (currentCollections[database][collection].hasOwnProperty(shard)) {
                   let cur = currentCollections[database][collection][shard];
                   if (!localCollections.hasOwnProperty(shard) &&
-                      cur.servers[0] === ourselves) {
+                      cur.servers[0] === ourselves &&
+                      !shardMap.hasOwnProperty(shard)) {
                     Object.assign(trx, makeDropCurrentEntryCollection(database, collection, shard));
                   }
                 }
@@ -1229,7 +1258,8 @@ function migratePrimary(plan, current) {
 
   // diff current and local and prepare agency transactions or whatever
   // to update current. Will report the errors created locally to the agency
-  let trx = updateCurrentForCollections(localErrors, current.Collections);
+  let trx = updateCurrentForCollections(localErrors, plan.Collections,
+                                                     current.Collections);
   if (Object.keys(trx).length > 0) {
     trx[curVersion] = {op: 'increment'};
     trx = [trx];
@@ -1604,7 +1634,7 @@ var shardList = function (dbName, collectionName) {
 // / @brief wait for a distributed response
 // /////////////////////////////////////////////////////////////////////////////
 
-var waitForDistributedResponse = function (data, numberOfRequests) {
+var waitForDistributedResponse = function (data, numberOfRequests, ignoreHttpErrors) {
   var received = [];
   try {
     while (received.length < numberOfRequests) {
@@ -1625,8 +1655,9 @@ var waitForDistributedResponse = function (data, numberOfRequests) {
 
         if (result.headers && result.headers.hasOwnProperty('x-arango-response-code')) {
           var code = parseInt(result.headers['x-arango-response-code'].substr(0, 3), 10);
+          result.statusCode = code;
 
-          if (code >= 400) {
+          if (code >= 400 && !ignoreHttpErrors) {
             var body;
 
             try {
@@ -1749,56 +1780,6 @@ var coordinatorId = function () {
 };
 
 // /////////////////////////////////////////////////////////////////////////////
-// / @brief bootstrap db servers
-// /////////////////////////////////////////////////////////////////////////////
-
-var bootstrapDbServers = function (isRelaunch) {
-  global.ArangoClusterInfo.reloadDBServers();
-
-  var dbServers = global.ArangoClusterInfo.getDBServers();
-  var ops = [];
-  var i;
-
-  var options = {
-    coordTransactionID: global.ArangoClusterComm.getId(),
-    timeout: 90
-  };
-
-  for (i = 0;  i < dbServers.length;  ++i) {
-    var server = dbServers[i];
-
-    var op = global.ArangoClusterComm.asyncRequest(
-      'POST',
-      'server:' + server,
-      '_system',
-      '/_admin/cluster/bootstrapDbServer',
-      '{"isRelaunch": ' + (isRelaunch ? 'true' : 'false') + '}',
-      {},
-      options);
-
-    ops.push(op);
-  }
-
-  var result = true;
-
-  for (i = 0;  i < ops.length;  ++i) {
-    var r = global.ArangoClusterComm.wait(ops[i]);
-
-    if (r.status === 'RECEIVED') {
-      console.debug('bootstraped DB server %s', dbServers[i]);
-    } else if (r.status === 'TIMEOUT') {
-      console.error('cannot bootstrap DB server %s: operation timed out', dbServers[i]);
-      result = false;
-    } else {
-      console.error('cannot bootstrap DB server %s: %s', dbServers[i], JSON.stringify(r));
-      result = false;
-    }
-  }
-
-  return result;
-};
-
-// /////////////////////////////////////////////////////////////////////////////
 // / @brief shard distribution
 // /////////////////////////////////////////////////////////////////////////////
 
@@ -1845,8 +1826,25 @@ function moveShard (info) {
   var isLeader;
   var collInfo;
   try {
+    // First translate server names from short names to long names:
+    var servers = global.ArangoClusterInfo.getDBServers();
+    for (let i = 0; i < servers.length; i++) {
+      if (servers[i].serverId !== info.fromServer) {
+        if (servers[i].serverName === info.fromServer) {
+          info.fromServer = servers[i].serverId;
+        }
+      }
+      if (servers[i].serverId !== info.toServer) {
+        if (servers[i].serverName === info.toServer) {
+          info.toServer = servers[i].serverId;
+        }
+      }
+    }
     collInfo = global.ArangoClusterInfo.getCollectionInfo(info.database,
       info.collection);
+    if (collInfo.distributeShardsLike !== undefined) {
+      return {error:true, errorMessage:'MoveShard only allowed for collections which have distributeShardsLike unset.'};
+    }
     var shards = collInfo.shards;
     var shard = shards[info.shard];
     var pos = shard.indexOf(info.fromServer);
@@ -1858,7 +1856,7 @@ function moveShard (info) {
       isLeader = false;
     }
   } catch (e2) {
-    return 'Combination of database, collection, shard and fromServer does not make sense.';
+    return {error:true, errorMessage:'Combination of database, collection, shard and fromServer does not make sense.'};
   }
 
   var id;
@@ -1866,13 +1864,14 @@ function moveShard (info) {
     id = global.ArangoClusterInfo.uniqid();
     var todo = { 'type': 'moveShard',
       'database': info.database,
-      'collections': [collInfo.id],
-      'shards': [info.shard],
+      'collection': collInfo.id,
+      'shard': info.shard,
       'fromServer': info.fromServer,
       'toServer': info.toServer,
       'jobId': id,
       'timeCreated': (new Date()).toISOString(),
-    'creator': ArangoServerState.id() };
+      'creator': ArangoServerState.id(),
+      'isLeader': isLeader };
     global.ArangoAgency.set('Target/ToDo/' + id, todo);
   } catch (e1) {
     return {error: true, errorMessage: 'Cannot write to agency.'};
@@ -1890,7 +1889,7 @@ function rebalanceShards () {
   var dbTab = {};
   var i, j, k, l;
   for (i = 0; i < dbServers.length; ++i) {
-    dbTab[dbServers[i]] = [];
+    dbTab[dbServers[i].serverId] = [];
   }
   var shardMap = {};
 
@@ -1908,19 +1907,24 @@ function rebalanceShards () {
         }
         var collInfo = global.ArangoClusterInfo.getCollectionInfo(
           databases[i], collName);
-        var shardNames = Object.keys(collInfo.shards);
-        for (k = 0; k < shardNames.length; k++) {
-          var shardName = shardNames[k];
-          shardMap[shardName] = { database: databases[i], collection: collName,
-            servers: collInfo.shards[shardName],
-          weight: 1 };
-          dbTab[collInfo.shards[shardName][0]].push(
-            { shard: shardName, leader: true,
-            weight: shardMap[shardName].weight });
-          for (l = 1; l < collInfo.shards[shardName].length; ++l) {
-            dbTab[collInfo.shards[shardName][l]].push(
-              { shard: shardName, leader: false,
+        if (collInfo.distributeShardsLike === undefined) {
+          // Only consider those collections that do not follow another one
+          // w.r.t. their shard distribution.
+          var shardNames = Object.keys(collInfo.shards);
+          for (k = 0; k < shardNames.length; k++) {
+            var shardName = shardNames[k];
+            shardMap[shardName] = { database: databases[i],
+              collection: collName,
+              servers: collInfo.shards[shardName],
+              weight: 1 };
+            dbTab[collInfo.shards[shardName][0]].push(
+              { shard: shardName, leader: true,
               weight: shardMap[shardName].weight });
+            for (l = 1; l < collInfo.shards[shardName].length; ++l) {
+              dbTab[collInfo.shards[shardName][l]].push(
+                { shard: shardName, leader: false,
+                weight: shardMap[shardName].weight });
+            }
           }
         }
       }
@@ -1936,8 +1940,8 @@ function rebalanceShards () {
   // Compute total weight for each DBServer:
   var totalWeight = [];
   for (i = 0; i < dbServers.length; ++i) {
-    totalWeight.push({'server': dbServers[i],
-      'weight': _.reduce(dbTab[dbServers[i]],
+    totalWeight.push({'server': dbServers[i].serverId,
+      'weight': _.reduce(dbTab[dbServers[i].serverId],
       (sum, x) => sum + x.weight, 0)});
   }
   totalWeight = _.sortBy(totalWeight, x => x.weight);
@@ -1966,8 +1970,8 @@ function rebalanceShards () {
         shard: shard,
         fromServer: fullest,
       toServer: emptiest };
-      var msg = moveShard(todo);
-      if (msg === '') {
+      var res = moveShard(todo);
+      if (!res.error) {
         console.debug('rebalanceShards: moveShard(', todo, ')');
         totalWeight[last].weight -= shardInfo.weight;
         totalWeight[0].weight += shardInfo.weight;
@@ -1977,7 +1981,8 @@ function rebalanceShards () {
           break;
         }
       } else {
-        console.error('rebalanceShards: moveShard(', todo, ') produced:', msg);
+        console.error('rebalanceShards: moveShard(', todo, ') produced:',
+                      res.errorMessage);
       }
     }
   }
@@ -2094,7 +2099,6 @@ function endpoints() {
   }
 }
 
-exports.bootstrapDbServers = bootstrapDbServers;
 exports.coordinatorId = coordinatorId;
 exports.handlePlanChange = handlePlanChange;
 exports.isCluster = isCluster;
@@ -2117,4 +2121,3 @@ exports.executePlanForDatabases = executePlanForDatabases;
 exports.executePlanForCollections = executePlanForCollections;
 exports.updateCurrentForDatabases = updateCurrentForDatabases;
 exports.updateCurrentForCollections = updateCurrentForCollections;
-exports.fetchKey = fetchKey;

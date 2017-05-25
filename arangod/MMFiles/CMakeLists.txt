@@ -39,12 +39,14 @@ set(MMFILES_SOURCES
   MMFiles/MMFilesRemoverThread.cpp
   MMFiles/MMFilesRestExportHandler.cpp
   MMFiles/MMFilesRestHandlers.cpp
+  MMFiles/MMFilesRestReplicationHandler.cpp
   MMFiles/MMFilesRestWalHandler.cpp
   MMFiles/MMFilesRevisionsCache.cpp
   MMFiles/MMFilesSkiplistIndex.cpp
   MMFiles/MMFilesSynchronizerThread.cpp
   MMFiles/MMFilesTransactionCollection.cpp
   MMFiles/MMFilesTransactionContextData.cpp
+  MMFiles/MMFilesTransactionManager.cpp
   MMFiles/MMFilesTransactionState.cpp
   MMFiles/MMFilesV8Functions.cpp
   MMFiles/MMFilesView.cpp

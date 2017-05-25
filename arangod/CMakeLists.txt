@@ -42,7 +42,7 @@ endif ()
 ## arangod
 ################################################################################
 
-if (MSVC)
+if (MSVC AND NOT(SKIP_PACKAGING))
   generate_product_version(ProductVersionFiles
     NAME arangod
     FILE_DESCRIPTION ${ARANGODB_FRIENDLY_STRING}
@@ -85,18 +85,17 @@ SET(ARANGOD_SOURCES
   Agency/GossipCallback.cpp
   Agency/Inception.cpp
   Agency/Job.cpp
-  Agency/MeasureCallback.cpp
+  Agency/JobContext.cpp  
   Agency/MoveShard.cpp
   Agency/Node.cpp
   Agency/NotifyCallback.cpp
-  Agency/RemoveServer.cpp
+  Agency/RemoveFollower.cpp
   Agency/RestAgencyHandler.cpp
   Agency/RestAgencyPrivHandler.cpp
   Agency/State.cpp
   Agency/Store.cpp
   Agency/StoreCallback.cpp
   Agency/Supervision.cpp
-  Agency/UnassumedLeadership.cpp
   Agency/v8-agency.cpp
   Aql/Aggregator.cpp
   Aql/AqlFunctionFeature.cpp
@@ -135,6 +134,7 @@ SET(ARANGOD_SOURCES
   Aql/Functions.cpp
   Aql/Geo.cpp
   Aql/Graphs.cpp
+  Aql/GraphNode.cpp
   Aql/IndexBlock.cpp
   Aql/IndexNode.cpp
   Aql/ModificationBlocks.cpp
@@ -154,13 +154,13 @@ SET(ARANGOD_SOURCES
   Aql/QueryList.cpp
   Aql/QueryRegistry.cpp
   Aql/QueryResources.cpp
+  Aql/QueryString.cpp
   Aql/Range.cpp
   Aql/RestAqlHandler.cpp
   Aql/Scopes.cpp
   Aql/ShortStringStorage.cpp
   Aql/ShortestPathBlock.cpp
   Aql/ShortestPathNode.cpp
-  Aql/ShortestPathOptions.cpp
   Aql/SortBlock.cpp
   Aql/SortCondition.cpp
   Aql/SortNode.cpp
@@ -195,6 +195,7 @@ SET(ARANGOD_SOURCES
   Cluster/ClusterComm.cpp
   Cluster/ClusterEdgeCursor.cpp
   Cluster/ClusterFeature.cpp
+  Cluster/ClusterHelpers.cpp
   Cluster/ClusterInfo.cpp
   Cluster/ClusterMethods.cpp
   Cluster/ClusterTraverser.cpp
@@ -209,6 +210,7 @@ SET(ARANGOD_SOURCES
   Cluster/v8-cluster.cpp
   GeneralServer/AsyncJobManager.cpp
   GeneralServer/AuthenticationFeature.cpp
+  GeneralServer/AuthenticationHandler.cpp
   GeneralServer/GeneralCommTask.cpp
   GeneralServer/GeneralListenTask.cpp
   GeneralServer/GeneralServer.cpp
@@ -218,13 +220,45 @@ SET(ARANGOD_SOURCES
   GeneralServer/RestHandler.cpp
   GeneralServer/RestHandlerFactory.cpp
   GeneralServer/RestStatus.cpp
-  GeneralServer/VppCommTask.cpp
+  GeneralServer/VstCommTask.cpp
+  Graph/AttributeWeightShortestPathFinder.cpp
+  Graph/BaseOptions.cpp
   Graph/BreadthFirstEnumerator.cpp
+  Graph/ConstantWeightShortestPathFinder.cpp
+  Graph/ClusterTraverserCache.cpp
   Graph/NeighborsEnumerator.cpp
+  Graph/ShortestPathOptions.cpp
+  Graph/ShortestPathResult.cpp
+  Graph/SingleServerEdgeCursor.cpp
   Indexes/Index.cpp
   Indexes/IndexIterator.cpp
   Indexes/SimpleAttributeEqualityMatcher.cpp
   InternalRestHandler/InternalRestTraverserHandler.cpp
+  Pregel/AggregatorHandler.cpp
+  Pregel/AlgoRegistry.cpp
+  Pregel/Algos/AsyncSCC.cpp
+  Pregel/Algos/ConnectedComponents.cpp
+  Pregel/Algos/EffectiveCloseness/EffectiveCloseness.cpp
+  Pregel/Algos/EffectiveCloseness/HLLCounter.cpp
+  Pregel/Algos/HITS.cpp
+  Pregel/Algos/LineRank.cpp
+  Pregel/Algos/PageRank.cpp
+  Pregel/Algos/RecoveringPageRank.cpp
+  Pregel/Algos/ShortestPath.cpp
+  Pregel/Algos/SSSP.cpp
+  Pregel/Algos/SCC.cpp
+  Pregel/Algos/SLPA.cpp
+  Pregel/Algos/LabelPropagation.cpp
+  Pregel/Algos/DMID/DMID.cpp
+  Pregel/Conductor.cpp
+  Pregel/GraphStore.cpp
+  Pregel/IncomingCache.cpp
+  Pregel/OutgoingCache.cpp
+  Pregel/PregelFeature.cpp
+  Pregel/Recovery.cpp
+  Pregel/Utils.cpp
+  Pregel/Worker.cpp
+  Pregel/WorkerConfig.cpp
   Replication/ContinuousSyncer.cpp
   Replication/InitialSyncer.cpp
   Replication/Syncer.cpp
@@ -246,7 +280,6 @@ SET(ARANGOD_SOURCES
   RestHandler/RestPregelHandler.cpp
   RestHandler/RestQueryCacheHandler.cpp
   RestHandler/RestQueryHandler.cpp
-  RestHandler/RestReplicationHandler.cpp
   RestHandler/RestShutdownHandler.cpp
   RestHandler/RestSimpleHandler.cpp
   RestHandler/RestSimpleQueryHandler.cpp
@@ -296,6 +329,7 @@ SET(ARANGOD_SOURCES
   Statistics/ServerStatistics.cpp
   Statistics/StatisticsFeature.cpp
   StorageEngine/EngineSelectorFeature.cpp
+  StorageEngine/PhysicalCollection.cpp
   StorageEngine/TransactionCollection.cpp
   StorageEngine/TransactionState.cpp
   Transaction/Context.cpp
@@ -314,7 +348,6 @@ SET(ARANGOD_SOURCES
   V8Server/FoxxQueuesFeature.cpp
   V8Server/V8Context.cpp
   V8Server/V8DealerFeature.cpp
-  V8Server/V8Traverser.cpp
   V8Server/v8-actions.cpp
   V8Server/v8-collection-util.cpp
   V8Server/v8-collection.cpp
@@ -337,41 +370,17 @@ SET(ARANGOD_SOURCES
   VocBase/LogicalView.cpp
   VocBase/ManagedDocumentResult.cpp
   VocBase/PathEnumerator.cpp
-  VocBase/PhysicalCollection.cpp
   VocBase/SingleServerTraverser.cpp
-  VocBase/TransactionManager.cpp
   VocBase/Traverser.cpp
   VocBase/TraverserCache.cpp
+  VocBase/TraverserCacheFactory.cpp
+  VocBase/TraverserDocumentCache.cpp
   VocBase/TraverserOptions.cpp
   VocBase/modes.cpp
   VocBase/replication-applier.cpp
   VocBase/replication-common.cpp
   VocBase/ticks.cpp
   VocBase/vocbase.cpp
-  Pregel/AggregatorHandler.cpp
-  Pregel/AlgoRegistry.cpp
-  Pregel/Algos/SSSP.cpp
-  Pregel/Algos/ShortestPath.cpp
-  Pregel/Algos/PageRank.cpp
-  Pregel/Algos/RecoveringPageRank.cpp
-  Pregel/Algos/LineRank.cpp
-  Pregel/Algos/ConnectedComponents.cpp
-  Pregel/Algos/SCC.cpp
-  Pregel/Algos/AsyncSCC.cpp
-  Pregel/Algos/HITS.cpp
-  Pregel/Algos/LabelPropagation.cpp
-  Pregel/Algos/DMID/DMID.cpp
-  Pregel/Algos/EffectiveCloseness/EffectiveCloseness.cpp
-  Pregel/Algos/EffectiveCloseness/HLLCounter.cpp
-  Pregel/Conductor.cpp
-  Pregel/GraphStore.cpp
-  Pregel/IncomingCache.cpp
-  Pregel/OutgoingCache.cpp
-  Pregel/PregelFeature.cpp
-  Pregel/Utils.cpp
-  Pregel/Recovery.cpp
-  Pregel/Worker.cpp
-  Pregel/WorkerConfig.cpp
   ${ADDITIONAL_BIN_ARANGOD_SOURCES}
 )
 
@@ -401,6 +410,19 @@ target_link_libraries(arangoserver
   ${SYSTEM_LIBRARIES}
 )
 
+if (USE_ENTERPRISE)
+  if (MSVC)
+    target_link_libraries(arangoserver
+      Wldap32.lib
+    )
+  else()
+    target_link_libraries(arangoserver
+      ldap
+      lber
+    )
+  endif()
+endif()
+
 add_executable(${BIN_ARANGOD}
   RestServer/arangod.cpp
 )
@@ -408,6 +430,8 @@ add_executable(${BIN_ARANGOD}
 target_link_libraries(${BIN_ARANGOD}
   arangoserver
 )
+
+target_compile_features(${BIN_ARANGOD} PRIVATE cxx_constexpr)
 
 install(
   TARGETS ${BIN_ARANGOD}

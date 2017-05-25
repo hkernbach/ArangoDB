@@ -46,24 +46,21 @@
 #define ARANGOD_INDEXES_INDEX_ITERATOR_H 1
 
 #include "Basics/Common.h"
-#include "Cluster/ServerState.h"
 #include "Indexes/IndexLookupContext.h"
-#include "StorageEngine/StorageEngine.h"
-#include "VocBase/ManagedDocumentResult.h"
 #include "VocBase/vocbase.h"
 
 namespace arangodb {
 class Index;
 class LogicalCollection;
+class ManagedDocumentResult;
 namespace transaction {
 class Methods;
 }
-;
 
 /// @brief a base class to iterate over the index. An iterator is requested
 /// at the index itself
 class IndexIterator {
- protected:
+ public:
   typedef std::function<void(DocumentIdentifierToken const& token)> TokenCallback;
   typedef std::function<void(DocumentIdentifierToken const& token,
                              arangodb::velocypack::Slice extra)>
@@ -102,23 +99,23 @@ class IndexIterator {
 
 /// @brief Special iterator if the condition cannot have any result
 class EmptyIndexIterator final : public IndexIterator {
-  public:
-    EmptyIndexIterator(LogicalCollection* collection, transaction::Methods* trx, ManagedDocumentResult* mmdr, arangodb::Index const* index) 
-        : IndexIterator(collection, trx, mmdr, index) {}
+ public:
+  EmptyIndexIterator(LogicalCollection* collection, transaction::Methods* trx, ManagedDocumentResult* mmdr, arangodb::Index const* index) 
+      : IndexIterator(collection, trx, mmdr, index) {}
 
-    ~EmptyIndexIterator() {}
+  ~EmptyIndexIterator() {}
 
-    char const* typeName() const override { return "empty-index-iterator"; }
+  char const* typeName() const override { return "empty-index-iterator"; }
 
-    bool next(TokenCallback const&, size_t) override {
-      return false;
-    }
+  bool next(TokenCallback const&, size_t) override {
+    return false;
+  }
 
-    void reset() override {}
+  void reset() override {}
 
-    void skip(uint64_t, uint64_t& skipped) override {
-      skipped = 0;
-    }
+  void skip(uint64_t, uint64_t& skipped) override {
+    skipped = 0;
+  }
 };
 
 /// @brief a wrapper class to iterate over several IndexIterators.

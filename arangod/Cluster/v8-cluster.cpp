@@ -592,7 +592,7 @@ static void JS_GetCollectionInfoClusterInfo(
                                              "path",
                                              "planId",
                                              "version"};
-  VPackBuilder infoBuilder = ci->toVelocyPackIgnore(ignoreKeys, false);
+  VPackBuilder infoBuilder = ci->toVelocyPackIgnore(ignoreKeys, false, false);
   VPackSlice info = infoBuilder.slice();
 
   TRI_ASSERT(info.isObject());
@@ -1440,7 +1440,7 @@ static void PrepareClusterCommRequest(
   path = "/_db/" + dbname + path;
 
   body.clear();
-  if (args.Length() > 4) {
+  if (!args[4]->IsUndefined()) {
     if (args[4]->IsObject() && V8Buffer::hasInstance(isolate, args[4])) {
       // supplied body is a Buffer object
       char const* data = V8Buffer::data(args[4].As<v8::Object>());
@@ -1623,7 +1623,7 @@ static void Return_PrepareClusterCommResultForJS(
       r->Set(ErrorMessageKey,
              TRI_V8_ASCII_STRING("required backend was not available"));
     } else if (res.status == CL_COMM_RECEIVED) {  // Everything is OK
-      // FIXME HANDLE VPP
+      // FIXME HANDLE VST
       auto httpRequest = std::dynamic_pointer_cast<HttpRequest>(res.answer);
       if (httpRequest == nullptr) {
         THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_INTERNAL, "invalid request type");

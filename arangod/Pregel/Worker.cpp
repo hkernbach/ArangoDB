@@ -62,7 +62,8 @@ Worker<V, E, M>::Worker(TRI_vocbase_t* vocbase, Algorithm<V, E, M>* algo,
     : _state(WorkerState::IDLE),
       _config(vocbase, initConfig),
       _algorithm(algo),
-      _nextGSSSendMessageCount(0) {
+      _nextGSSSendMessageCount(0),
+      _requestedNextGSS(false) {
   MUTEX_LOCKER(guard, _commandMutex);
 
   VPackSlice userParams = initConfig.get(Utils::userParametersKey);
@@ -792,3 +793,4 @@ template class arangodb::pregel::Worker<HITSValue, int8_t,
 template class arangodb::pregel::Worker<ECValue, int8_t, HLLCounter>;
 template class arangodb::pregel::Worker<DMIDValue, float, DMIDMessage>;
 template class arangodb::pregel::Worker<LPValue, int8_t, uint64_t>;
+template class arangodb::pregel::Worker<SLPAValue, int8_t, uint64_t>;

@@ -275,7 +275,7 @@ size_t State::removeConflicts(query_t const& transactions) { // Under MUTEX in A
                                     stringify(idx) + "' REMOVE l IN log");
 
               arangodb::aql::Query query(
-                false, _vocbase, aql.c_str(), aql.size(), bindVars, nullptr,
+                false, _vocbase, aql::QueryString(aql), bindVars, nullptr,
                 arangodb::aql::PART_MAIN);
 
               auto queryResult = query.execute(_queryRegistry);
@@ -315,15 +315,15 @@ std::vector<log_t> State::get(arangodb::consensus::index_t start,
     return entries;
   }
 
-  if (end == (std::numeric_limits<uint64_t>::max)() || end > _log.size() - 1) {
-    end = _log.size() - 1;
+  if (end == (std::numeric_limits<uint64_t>::max)() || end > _log.back().index) {
+    end = _log.back().index;
   }
 
   if (start < _log[0].index) {
     start = _log[0].index;
   }
 
-  for (size_t i = start - _cur; i <= end; ++i) {
+  for (size_t i = start - _cur; i <= end - _cur; ++i) {
     entries.push_back(_log[i]);
   }
 
@@ -461,11 +461,11 @@ bool State::checkCollection(std::string const& name) {
 /// Create collection by name
 bool State::createCollection(std::string const& name) {
   Builder body;
-  body.add(VPackValue(VPackValueType::Object));
-  body.add("type", VPackValue(static_cast<int>(TRI_COL_TYPE_DOCUMENT))); 
-  body.add("name", VPackValue(name));
-  body.add("isSystem", VPackValue(LogicalCollection::IsSystemName(name)));
-  body.close();
+  { VPackObjectBuilder b(&body);
+    body.add("type", VPackValue(static_cast<int>(TRI_COL_TYPE_DOCUMENT))); 
+    body.add("name", VPackValue(name));
+    body.add("isSystem", VPackValue(LogicalCollection::IsSystemName(name)));
+  }
 
   arangodb::LogicalCollection const* collection =
       _vocbase->createCollection(body.slice());
@@ -537,7 +537,7 @@ bool State::loadCompacted() {
   
   std::string const aql(
       std::string("FOR c IN compact SORT c._key DESC LIMIT 1 RETURN c"));
-  arangodb::aql::Query query(false, _vocbase, aql.c_str(), aql.size(), bindVars,
+  arangodb::aql::Query query(false, _vocbase, aql::QueryString(aql), bindVars,
                              nullptr, arangodb::aql::PART_MAIN);
 
   auto queryResult = query.execute(QueryRegistryFeature::QUERY_REGISTRY);
@@ -576,7 +576,7 @@ bool State::loadOrPersistConfiguration() {
   std::string const aql(
       std::string("FOR c in configuration FILTER c._key==\"0\" RETURN c.cfg"));
 
-  arangodb::aql::Query query(false, _vocbase, aql.c_str(), aql.size(), bindVars,
+  arangodb::aql::Query query(false, _vocbase, aql::QueryString(aql), bindVars,
                              nullptr, arangodb::aql::PART_MAIN);
 
   auto queryResult = query.execute(QueryRegistryFeature::QUERY_REGISTRY);
@@ -605,6 +605,8 @@ bool State::loadOrPersistConfiguration() {
 
   } else {  // Fresh start
 
+    MUTEX_LOCKER(guard, _configurationWriteLock);
+
     LOG_TOPIC(DEBUG, Logger::AGENCY) << "New agency!";
 
     TRI_ASSERT(_agent != nullptr);
@@ -612,31 +614,31 @@ bool State::loadOrPersistConfiguration() {
 
     auto transactionContext =
         std::make_shared<transaction::StandaloneContext>(_vocbase);
-    SingleCollectionTransaction trx(transactionContext, "configuration",
-                                    AccessMode::Type::WRITE);
+    SingleCollectionTransaction trx(
+      transactionContext, "configuration", AccessMode::Type::WRITE);
 
     Result res = trx.begin();
+    OperationResult result;
 
     if (!res.ok()) {
       THROW_ARANGO_EXCEPTION(res);
     }
 
     Builder doc;
-    doc.openObject();
-    doc.add("_key", VPackValue("0"));
-    doc.add("cfg", _agent->config().toBuilder()->slice());
-    doc.close();
+    { VPackObjectBuilder d(&doc);
+      doc.add("_key", VPackValue("0"));
+      doc.add("cfg", _agent->config().toBuilder()->slice()); }
 
-    OperationResult result;
     try {
       result = trx.insert("configuration", doc.slice(), _options);
     } catch (std::exception const& e) {
-      LOG_TOPIC(ERR, Logger::AGENCY) << "Failed to persist configuration entry:"
-                                     << e.what();
+      LOG_TOPIC(ERR, Logger::AGENCY)
+        << "Failed to persist configuration entry:" << e.what();
       FATAL_ERROR_EXIT();
     }
 
     res = trx.finish(result.code);
+
     return res.ok();
   }
 
@@ -650,7 +652,7 @@ bool State::loadRemaining() {
   bindVars->close();
 
   std::string const aql(std::string("FOR l IN log SORT l._key RETURN l"));
-  arangodb::aql::Query query(false, _vocbase, aql.c_str(), aql.size(), bindVars,
+  arangodb::aql::Query query(false, _vocbase, aql::QueryString(aql), bindVars,
                              nullptr, arangodb::aql::PART_MAIN);
 
   auto queryResult = query.execute(QueryRegistryFeature::QUERY_REGISTRY);
@@ -753,7 +755,7 @@ bool State::compactPersisted(arangodb::consensus::index_t cind) {
   std::string const aql(std::string("FOR l IN log FILTER l._key < \"") +
                         i_str.str() + "\" REMOVE l IN log");
 
-  arangodb::aql::Query query(false, _vocbase, aql.c_str(), aql.size(), bindVars,
+  arangodb::aql::Query query(false, _vocbase, aql::QueryString(aql), bindVars,
                              nullptr, arangodb::aql::PART_MAIN);
 
   auto queryResult = query.execute(QueryRegistryFeature::QUERY_REGISTRY);
@@ -783,7 +785,7 @@ bool State::removeObsolete(arangodb::consensus::index_t cind) {
     std::string const aql(std::string("FOR c IN compact FILTER c._key < \"") +
                           i_str.str() + "\" REMOVE c IN compact");
 
-    arangodb::aql::Query query(false, _vocbase, aql.c_str(), aql.size(),
+    arangodb::aql::Query query(false, _vocbase, aql::QueryString(aql),
                                bindVars, nullptr, arangodb::aql::PART_MAIN);
 
     auto queryResult = query.execute(QueryRegistryFeature::QUERY_REGISTRY);
@@ -798,21 +800,21 @@ bool State::removeObsolete(arangodb::consensus::index_t cind) {
 /// Persist the globally commited truth
 bool State::persistReadDB(arangodb::consensus::index_t cind) {
   if (checkCollection("compact")) {
-    Builder store;
-    store.openObject();
-    store.add("readDB", VPackValue(VPackValueType::Array));
-    _agent->readDB().dumpToBuilder(store);
-    store.close();
     std::stringstream i_str;
     i_str << std::setw(20) << std::setfill('0') << cind;
-    store.add("_key", VPackValue(i_str.str()));
-    store.close();
+
+    Builder store;
+    { VPackObjectBuilder s(&store);
+      store.add(VPackValue("readDB"));
+      { VPackArrayBuilder a(&store); 
+        _agent->readDB().dumpToBuilder(store); }
+      store.add("_key", VPackValue(i_str.str())); }
 
     TRI_ASSERT(_vocbase != nullptr);
     auto transactionContext =
         std::make_shared<transaction::StandaloneContext>(_vocbase);
-    SingleCollectionTransaction trx(transactionContext, "compact",
-                                    AccessMode::Type::WRITE);
+    SingleCollectionTransaction trx(
+      transactionContext, "compact", AccessMode::Type::WRITE);
 
     Result res = trx.begin();
 
@@ -830,43 +832,53 @@ bool State::persistReadDB(arangodb::consensus::index_t cind) {
   return false;
 }
 
-bool State::persistActiveAgents(query_t const& active, query_t const& pool) {
-  auto bindVars = std::make_shared<VPackBuilder>();
-  bindVars->openObject();
-  bindVars->close();
+void State::persistActiveAgents(query_t const& active, query_t const& pool) {
+  TRI_ASSERT(_vocbase != nullptr);
 
-  std::stringstream aql;
-  aql << "FOR c IN configuration UPDATE {_key:c._key} WITH {cfg:{active:";
-  aql << active->slice().toJson();
-  aql << ", pool:";
-  aql << pool->slice().toJson();
-  aql << "}} IN configuration";
-  std::string aqlStr = aql.str();
-
-  arangodb::aql::Query query(false, _vocbase, aqlStr.c_str(), aqlStr.size(),
-                             bindVars, nullptr, arangodb::aql::PART_MAIN);
-
-  auto queryResult = query.execute(QueryRegistryFeature::QUERY_REGISTRY);
-  if (queryResult.code != TRI_ERROR_NO_ERROR) {
-    THROW_ARANGO_EXCEPTION_MESSAGE(queryResult.code, queryResult.details);
+  Builder builder;
+  { VPackObjectBuilder guard(&builder);
+    builder.add("_key", VPackValue("0"));
+    builder.add(VPackValue("cfg"));
+    { VPackObjectBuilder guard2(&builder);
+      builder.add("active", active->slice());
+      builder.add("pool", pool->slice());
+    }
   }
 
-  return true;
+  MUTEX_LOCKER(guard, _configurationWriteLock);
+
+  auto transactionContext =
+      std::make_shared<transaction::StandaloneContext>(_vocbase);
+  SingleCollectionTransaction trx(
+    transactionContext, "configuration", AccessMode::Type::WRITE);
+
+  Result res = trx.begin();
+  if (!res.ok()) {
+    THROW_ARANGO_EXCEPTION(res);
+  }
+
+  auto result = trx.update("configuration", builder.slice(), _options);
+  if (!result.successful()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(result.code, result.errorMessage);
+  }
+  res = trx.finish(result.code);
+  if (!res.ok()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(res.errorNumber(), res.errorMessage());
+  }
 }
 
 query_t State::allLogs() const {
   MUTEX_LOCKER(mutexLocker, _logLock);
 
   auto bindVars = std::make_shared<VPackBuilder>();
-  bindVars->openObject();
-  bindVars->close();
+  { VPackObjectBuilder(bindVars.get()); }
   
   std::string const comp("FOR c IN compact SORT c._key RETURN c");
   std::string const logs("FOR l IN log SORT l._key RETURN l");
 
-  arangodb::aql::Query compq(false, _vocbase, comp.c_str(), comp.size(),
+  arangodb::aql::Query compq(false, _vocbase, aql::QueryString(comp),
                              bindVars, nullptr, arangodb::aql::PART_MAIN);
-  arangodb::aql::Query logsq(false, _vocbase, logs.c_str(), logs.size(),
+  arangodb::aql::Query logsq(false, _vocbase, aql::QueryString(logs),
                              bindVars, nullptr, arangodb::aql::PART_MAIN);
 
   auto compqResult = compq.execute(QueryRegistryFeature::QUERY_REGISTRY);
@@ -879,25 +891,20 @@ query_t State::allLogs() const {
   }
 
   auto everything = std::make_shared<VPackBuilder>();
-
-  everything->openObject();
-
-  try {
-    everything->add("compact", compqResult.result->slice());
-  } catch (std::exception const&) {
-    LOG_TOPIC(ERR, Logger::AGENCY)
-      << "Failed to assemble compaction part of everything package";
+  { VPackObjectBuilder(everything.get());
+    try {
+      everything->add("compact", compqResult.result->slice());
+    } catch (std::exception const&) {
+      LOG_TOPIC(ERR, Logger::AGENCY)
+        << "Failed to assemble compaction part of everything package";
+    }
+    try{
+      everything->add("logs", logsqResult.result->slice());
+    } catch (std::exception const&) {
+      LOG_TOPIC(ERR, Logger::AGENCY)
+        << "Failed to assemble remaining part of everything package";
+    }
   }
-
-  try{
-    everything->add("logs", logsqResult.result->slice());
-  } catch (std::exception const&) {
-    LOG_TOPIC(ERR, Logger::AGENCY)
-      << "Failed to assemble remaining part of everything package";
-  }
-
-  everything->close();
-
   return everything;
   
 }

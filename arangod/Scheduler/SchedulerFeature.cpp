@@ -52,7 +52,6 @@ SchedulerFeature::SchedulerFeature(
     : ApplicationFeature(server, "Scheduler"), _scheduler(nullptr) {
   setOptional(true);
   requiresElevatedPrivileges(false);
-  // startsAfter("Database");
   startsAfter("FileDescriptors");
   startsAfter("Logger");
   startsAfter("WorkMonitor");
@@ -76,7 +75,7 @@ void SchedulerFeature::collectOptions(
                            new UInt64Parameter(&_nrMaximalThreads));
 
   options->addOption("--server.maximal-queue-size",
-                     "maximum queue length for asynchronous operations",
+                     "maximum queue length for pending operations (use 0 for unrestricted)",
                      new UInt64Parameter(&_queueSize));
 
   options->addOldOption("scheduler.threads", "server.threads");
@@ -87,12 +86,6 @@ void SchedulerFeature::validateOptions(
   if (_nrServerThreads == 0) {
     _nrServerThreads = TRI_numberProcessors();
     LOG_TOPIC(DEBUG, arangodb::Logger::FIXME) << "Detected number of processors: " << _nrServerThreads;
-  }
-
-  if (_queueSize < 128) {
-    LOG_TOPIC(FATAL, arangodb::Logger::FIXME)
-        << "invalid value for `--server.maximal-queue-size', need at least 128";
-    FATAL_ERROR_EXIT();
   }
 
   if (_nrMinimalThreads < 2) {
@@ -183,6 +176,9 @@ void SchedulerFeature::stop() {
     usleep(100000);
   }
   
+  // shutdown user jobs again, in case new ones appear
+  TRI_ShutdownV8Dispatcher();
+
   _scheduler->shutdown();
 }
 
@@ -240,7 +236,7 @@ bool CtrlHandler(DWORD eventType) {
   static bool seen = false;
 
   if (!seen) {
-    LOG_TOPIC(INFO, arangodb::Logger::FIXME) << "" << shutdownMessage << ", beginning shut down sequence";
+    LOG_TOPIC(INFO, arangodb::Logger::FIXME) << shutdownMessage << ", beginning shut down sequence";
 
     if (application_features::ApplicationServer::server != nullptr) {
       application_features::ApplicationServer::server->beginShutdown();
@@ -254,7 +250,7 @@ bool CtrlHandler(DWORD eventType) {
   // user is desperate to kill the server!
   // ........................................................................
 
-  LOG_TOPIC(INFO, arangodb::Logger::FIXME) << "" << shutdownMessage << ", terminating";
+  LOG_TOPIC(INFO, arangodb::Logger::FIXME) << shutdownMessage << ", terminating";
   _exit(EXIT_FAILURE);  // quick exit for windows
   return true;
 }
@@ -263,10 +259,10 @@ bool CtrlHandler(DWORD eventType) {
 
 void SchedulerFeature::buildScheduler() {
   _scheduler =
-      std::make_unique<Scheduler>(static_cast<uint64_t>(_nrMinimalThreads),
-                                  static_cast<uint64_t>(_nrServerThreads),
-                                  static_cast<uint64_t>(_nrMaximalThreads),
-                                  static_cast<uint64_t>(_queueSize));
+      std::make_unique<Scheduler>(_nrMinimalThreads,
+                                  _nrServerThreads,
+                                  _nrMaximalThreads,
+                                  _queueSize);
 
   SCHEDULER = _scheduler.get();
 }
@@ -281,6 +277,18 @@ void SchedulerFeature::buildControlCHandler() {
     }
   }
 #else
+
+#ifndef WIN32
+  // Signal masking on POSIX platforms
+  //
+  // POSIX allows signals to be blocked using functions such as sigprocmask()
+  // and pthread_sigmask(). For signals to be delivered, programs must ensure
+  // that any signals registered using signal_set objects are unblocked in at
+  // least one thread.
+  sigset_t all;
+  sigemptyset(&all);
+  pthread_sigmask(SIG_SETMASK, &all, 0);
+#endif
 
   auto ioService = _scheduler->managerService();
   _exitSignals = std::make_shared<boost::asio::signal_set>(*ioService, SIGINT,

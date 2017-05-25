@@ -23,7 +23,10 @@
 /// @author Jan Christoph Uhde
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "RocksDBEngine/RocksDBCommon.h"
+#include "RocksDBCommon.h"
+#include "Basics/RocksDBUtils.h"
+#include "Basics/StringRef.h"
+#include "Logger/Logger.h"
 #include "RocksDBEngine/RocksDBComparator.h"
 #include "RocksDBEngine/RocksDBEngine.h"
 #include "RocksDBEngine/RocksDBKey.h"
@@ -35,58 +38,10 @@
 #include <rocksdb/comparator.h>
 #include <rocksdb/convenience.h>
 #include <rocksdb/utilities/transaction_db.h>
-#include "Logger/Logger.h"
+#include <velocypack/Iterator.h>
 
 namespace arangodb {
 namespace rocksutils {
-
-arangodb::Result convertStatus(rocksdb::Status const& status, StatusHint hint) {
-  switch (status.code()) {
-    case rocksdb::Status::Code::kOk:
-      return {TRI_ERROR_NO_ERROR};
-    case rocksdb::Status::Code::kNotFound:
-      switch (hint) {
-        case StatusHint::collection:
-          return {TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND, status.ToString()};
-        case StatusHint::database:
-          return {TRI_ERROR_ARANGO_DATABASE_NOT_FOUND, status.ToString()};
-        case StatusHint::document:
-          return {TRI_ERROR_ARANGO_DOCUMENT_NOT_FOUND, status.ToString()};
-        case StatusHint::index:
-          return {TRI_ERROR_ARANGO_INDEX_NOT_FOUND, status.ToString()};
-        case StatusHint::view:
-          return {TRI_ERROR_ARANGO_VIEW_NOT_FOUND, status.ToString()};
-        default:
-          return {TRI_ERROR_ARANGO_DOCUMENT_NOT_FOUND, status.ToString()};
-      }
-    case rocksdb::Status::Code::kCorruption:
-      return {TRI_ERROR_ARANGO_CORRUPTED_DATAFILE, status.ToString()};
-    case rocksdb::Status::Code::kNotSupported:
-      return {TRI_ERROR_ILLEGAL_OPTION, status.ToString()};
-    case rocksdb::Status::Code::kInvalidArgument:
-      return {TRI_ERROR_BAD_PARAMETER, status.ToString()};
-    case rocksdb::Status::Code::kIOError:
-      return {TRI_ERROR_ARANGO_IO_ERROR, status.ToString()};
-    case rocksdb::Status::Code::kMergeInProgress:
-      return {TRI_ERROR_ARANGO_MERGE_IN_PROGRESS, status.ToString()};
-    case rocksdb::Status::Code::kIncomplete:
-      return {TRI_ERROR_INTERNAL, "'incomplete' error in storage engine"};
-    case rocksdb::Status::Code::kShutdownInProgress:
-      return {TRI_ERROR_SHUTTING_DOWN, status.ToString()};
-    case rocksdb::Status::Code::kTimedOut:
-      return {TRI_ERROR_LOCK_TIMEOUT, status.ToString()};
-    case rocksdb::Status::Code::kAborted:
-      return {TRI_ERROR_TRANSACTION_ABORTED, status.ToString()};
-    case rocksdb::Status::Code::kBusy:
-      return {TRI_ERROR_ARANGO_BUSY, status.ToString()};
-    case rocksdb::Status::Code::kExpired:
-      return {TRI_ERROR_INTERNAL, "key expired; TTL was set in error"};
-    case rocksdb::Status::Code::kTryAgain:
-      return {TRI_ERROR_ARANGO_TRY_AGAIN, status.ToString()};
-    default:
-      return {TRI_ERROR_INTERNAL, "unknown RocksDB status code"};
-  }
-}
 
 uint64_t uint64FromPersistent(char const* p) {
   uint64_t value = 0;
@@ -116,11 +71,74 @@ void uint64ToPersistent(std::string& p, uint64_t value) {
   } while (++len < sizeof(uint64_t));
 }
 
+uint32_t uint32FromPersistent(char const* p) {
+  uint32_t value = 0;
+  uint32_t x = 0;
+  uint8_t const* ptr = reinterpret_cast<uint8_t const*>(p);
+  uint8_t const* end = ptr + sizeof(uint32_t);
+  do {
+    value += static_cast<uint16_t>(*ptr++) << x;
+    x += 8;
+  } while (ptr < end);
+  return value;
+}
+
+void uint32ToPersistent(char* p, uint32_t value) {
+  char* end = p + sizeof(uint32_t);
+  do {
+    *p++ = static_cast<uint8_t>(value & 0xffU);
+    value >>= 8;
+  } while (p < end);
+}
+
+void uint32ToPersistent(std::string& p, uint32_t value) {
+  size_t len = 0;
+  do {
+    p.push_back(static_cast<char>(value & 0xffU));
+    value >>= 8;
+  } while (++len < sizeof(uint32_t));
+}
+
+uint16_t uint16FromPersistent(char const* p) {
+  uint16_t value = 0;
+  uint16_t x = 0;
+  uint8_t const* ptr = reinterpret_cast<uint8_t const*>(p);
+  uint8_t const* end = ptr + sizeof(uint16_t);
+  do {
+    value += static_cast<uint16_t>(*ptr++) << x;
+    x += 8;
+  } while (ptr < end);
+  return value;
+}
+
+void uint16ToPersistent(char* p, uint16_t value) {
+  char* end = p + sizeof(uint16_t);
+  do {
+    *p++ = static_cast<uint8_t>(value & 0xffU);
+    value >>= 8;
+  } while (p < end);
+}
+
+void uint16ToPersistent(std::string& p, uint16_t value) {
+  size_t len = 0;
+  do {
+    p.push_back(static_cast<char>(value & 0xffU));
+    value >>= 8;
+  } while (++len < sizeof(uint16_t));
+}
+
 RocksDBTransactionState* toRocksTransactionState(transaction::Methods* trx) {
   TRI_ASSERT(trx != nullptr);
   TransactionState* state = trx->state();
   TRI_ASSERT(state != nullptr);
   return static_cast<RocksDBTransactionState*>(state);
+}
+  
+RocksDBMethods* toRocksMethods(transaction::Methods* trx) {
+  TRI_ASSERT(trx != nullptr);
+  TransactionState* state = trx->state();
+  TRI_ASSERT(state != nullptr);
+  return static_cast<RocksDBTransactionState*>(state)->rocksdbMethods();
 }
 
 rocksdb::TransactionDB* globalRocksDB() {
@@ -150,9 +168,32 @@ arangodb::Result globalRocksDBRemove(rocksdb::Slice const& key,
   return convertStatus(status);
 };
 
+uint64_t latestSequenceNumber() {
+  auto seq = globalRocksDB()->GetLatestSequenceNumber();
+  return static_cast<uint64_t>(seq);
+};
+
+void addCollectionMapping(uint64_t objectId, TRI_voc_tick_t did,
+                          TRI_voc_cid_t cid) {
+  StorageEngine* engine = EngineSelectorFeature::ENGINE;
+  TRI_ASSERT(engine != nullptr);
+  RocksDBEngine* rocks = static_cast<RocksDBEngine*>(engine);
+  TRI_ASSERT(rocks->db() != nullptr);
+  return rocks->addCollectionMapping(objectId, did, cid);
+}
+
+std::pair<TRI_voc_tick_t, TRI_voc_cid_t> mapObjectToCollection(
+    uint64_t objectId) {
+  StorageEngine* engine = EngineSelectorFeature::ENGINE;
+  TRI_ASSERT(engine != nullptr);
+  RocksDBEngine* rocks = static_cast<RocksDBEngine*>(engine);
+  TRI_ASSERT(rocks->db() != nullptr);
+  return rocks->mapObjectToCollection(objectId);
+}
+
 std::size_t countKeyRange(rocksdb::DB* db, rocksdb::ReadOptions const& opts,
                           RocksDBKeyBounds const& bounds) {
-  const rocksdb::Comparator* cmp = db->GetOptions().comparator;
+  rocksdb::Comparator const* cmp = db->GetOptions().comparator;
   std::unique_ptr<rocksdb::Iterator> it(db->NewIterator(opts));
   std::size_t count = 0;
 
@@ -170,6 +211,7 @@ std::size_t countKeyRange(rocksdb::DB* db, rocksdb::ReadOptions const& opts,
 /// Should mainly be used to implement the drop() call
 Result removeLargeRange(rocksdb::TransactionDB* db,
                         RocksDBKeyBounds const& bounds) {
+  LOG_TOPIC(DEBUG, Logger::FIXME) << "removing large range: " << bounds;
   try {
     // delete files in range lower..upper
     rocksdb::Slice lower(bounds.start());
@@ -180,21 +222,22 @@ Result removeLargeRange(rocksdb::TransactionDB* db,
           &upper);
       if (!status.ok()) {
         // if file deletion failed, we will still iterate over the remaining
-        // keys, so we
-        // don't need to abort and raise an error here
+        // keys, so we don't need to abort and raise an error here
         LOG_TOPIC(WARN, arangodb::Logger::FIXME)
             << "RocksDB file deletion failed";
       }
     }
 
     // go on and delete the remaining keys (delete files in range does not
-    // necessarily
-    // find them all, just complete files)
-    const rocksdb::Comparator* cmp = db->GetOptions().comparator;
+    // necessarily find them all, just complete files)
+    rocksdb::Comparator const* cmp = db->GetOptions().comparator;
     rocksdb::WriteBatch batch;
+    rocksdb::ReadOptions readOptions;
+    readOptions.fill_cache = false;
     std::unique_ptr<rocksdb::Iterator> it(
-        db->NewIterator(rocksdb::ReadOptions()));
+        db->NewIterator(readOptions));
 
+    // TODO: split this into multiple batches if batches get too big
     it->Seek(lower);
     while (it->Valid() && cmp->Compare(it->key(), upper) < 0) {
       batch.Delete(it->key());
@@ -209,7 +252,7 @@ Result removeLargeRange(rocksdb::TransactionDB* db,
           << "RocksDB key deletion failed: " << status.ToString();
       return TRI_ERROR_INTERNAL;
     }
-
+    
     return TRI_ERROR_NO_ERROR;
   } catch (arangodb::basics::Exception const& ex) {
     LOG_TOPIC(ERR, arangodb::Logger::FIXME)
@@ -236,16 +279,7 @@ std::vector<std::pair<RocksDBKey, RocksDBValue>> collectionKVPairs(
   });
   return rv;
 }
-std::vector<std::pair<RocksDBKey, RocksDBValue>> indexKVPairs(
-    TRI_voc_tick_t databaseId, TRI_voc_cid_t cid) {
-  std::vector<std::pair<RocksDBKey, RocksDBValue>> rv;
-  RocksDBKeyBounds bounds = RocksDBKeyBounds::DatabaseIndexes(databaseId, cid);
-  iterateBounds(bounds, [&rv](rocksdb::Iterator* it) {
-    rv.emplace_back(RocksDBKey(it->key()),
-                    RocksDBValue(RocksDBEntryType::Index, it->value()));
-  });
-  return rv;
-}
+
 std::vector<std::pair<RocksDBKey, RocksDBValue>> viewKVPairs(
     TRI_voc_tick_t databaseId) {
   std::vector<std::pair<RocksDBKey, RocksDBValue>> rv;

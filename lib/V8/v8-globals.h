@@ -412,6 +412,9 @@ typedef struct TRI_v8_global_s {
   /// @brief "allowUseDatabase" key name
   v8::Persistent<v8::String> AllowUseDatabaseKey;
 
+  /// @brief "authorized" key name
+  v8::Persistent<v8::String> AuthorizedKey;
+
   /// @brief "bodyFromFile" key name
   v8::Persistent<v8::String> BodyFromFileKey;
 
@@ -679,7 +682,7 @@ inline void TRI_V8_AddMethod(v8::Isolate* isolate, TARGET tpl,
                              bool isHidden = false) {
   // hidden method
   if (isHidden) {
-    tpl->Set(name, v8::FunctionTemplate::New(isolate, callback)->GetFunction());
+    tpl->ForceSet(name, v8::FunctionTemplate::New(isolate, callback)->GetFunction(), v8::DontEnum);
   }
   // normal method
   else {

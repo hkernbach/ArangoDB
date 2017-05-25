@@ -60,7 +60,6 @@ Exception::Exception(arangodb::Result&& result, char const* file, int line)
   appendLocation();
 }
 
-
 /// @brief constructor, for creating an exception with an already created
 /// error message (normally based on error templates containing %s, %d etc.)
 Exception::Exception(int code, std::string const& errorMessage,
@@ -106,8 +105,7 @@ char const* Exception::what() const throw() { return _errorMessage.c_str(); }
 void Exception::appendLocation () {
   if (_code == TRI_ERROR_INTERNAL) {
     _errorMessage += std::string(" (exception location: ") + _file + ":" + std::to_string(_line) + "). Please report this error to arangodb.com";
-  } else if (_code == TRI_ERROR_OUT_OF_MEMORY || 
-             _code == TRI_ERROR_NOT_YET_IMPLEMENTED) {
+  } else if (_code == TRI_ERROR_OUT_OF_MEMORY) {
     _errorMessage += std::string(" (exception location: ") + _file + ":" + std::to_string(_line) + ")";
   }
 

@@ -22,6 +22,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 #include "MMFilesV8Functions.h"
+#include "Aql/Functions.h"
 #include "Basics/Exceptions.h"
 #include "Cluster/ClusterMethods.h"
 #include "Cluster/ServerState.h"
@@ -29,6 +30,7 @@
 #include "MMFiles/MMFilesEngine.h"
 #include "MMFiles/MMFilesLogfileManager.h"
 #include "StorageEngine/EngineSelectorFeature.h"
+#include "StorageEngine/PhysicalCollection.h"
 #include "StorageEngine/StorageEngine.h"
 #include "Transaction/V8Context.h"
 #include "Utils/SingleCollectionTransaction.h"
@@ -38,7 +40,6 @@
 #include "V8Server/v8-externals.h"
 #include "V8Server/v8-vocbaseprivate.h"
 #include "VocBase/LogicalCollection.h"
-#include "VocBase/PhysicalCollection.h"
 
 #include <v8.h>
 

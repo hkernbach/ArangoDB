@@ -45,13 +45,23 @@ using namespace arangodb::basics;
 // -----------------------------------------------------------------------------
 
 unsigned long RandomDevice::seed() {
-  HybridLogicalClock clock;
-  unsigned long s = static_cast<unsigned long>(clock.getPhysicalTime());
-  TRI_pid_t pid = Thread::currentProcessId();
 
-  s ^= static_cast<unsigned long>(TRI_Crc32HashPointer(&pid, sizeof(TRI_pid_t)));
-  s = static_cast<unsigned long>(TRI_Crc32HashPointer(&s, sizeof(unsigned long))); 
-  return s;
+  // Random device ---
+  size_t dev = std::random_device()();
+
+  // Thread ID -------
+  auto tid =  std::hash<std::thread::id>()(std::this_thread::get_id());
+
+  // Time now --------
+  for (unsigned short i = 0; i < 50; ++i) {
+    std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+  }
+  auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+    std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+
+  return dev + tid + now;
+  
 }
 
 int32_t RandomDevice::interval(int32_t left, int32_t right) {
@@ -355,6 +365,7 @@ class RandomDeviceMersenne : public RandomDevice {
       : engine(RandomDevice::seed()) {}
 
   uint32_t random() { return engine(); }
+  void seed(uint64_t seed) { engine.seed(static_cast<decltype(engine)::result_type>(seed)); }
 
   std::mt19937 engine;
 };
@@ -582,4 +593,16 @@ uint64_t RandomGenerator::interval(uint64_t right) {
   }
   TRI_ASSERT(value <= right);
   return value;
+}
+
+void RandomGenerator::seed(uint64_t seed) {
+  MUTEX_LOCKER(locker, _lock);
+  if (!_device) {
+    throw std::runtime_error("Random device not yet initialized!");
+  }
+  if(RandomDeviceMersenne* dev = dynamic_cast<RandomDeviceMersenne*>(_device.get())) {
+    dev->seed(seed);
+    return;
+  }
+  throw std::runtime_error("Random device is not mersenne and cannot be seeded!");
 }

@@ -59,12 +59,13 @@ struct State {
     locked = 0x00000001,
     blacklisted = 0x00000002,
     disabled = 0x00000004,
-    migrated = 0x00000008,
-    migrating = 0x00000010,
-    rebalancing = 0x00000020,
-    resizing = 0x00000040,
-    shutdown = 0x00000080,
-    shuttingDown = 0x00000100
+    evictions = 0x00000008,
+    migrated = 0x00000010,
+    migrating = 0x00000020,
+    rebalancing = 0x00000040,
+    resizing = 0x00000080,
+    shutdown = 0x00000100,
+    shuttingDown = 0x00000200,
   };
 
   //////////////////////////////////////////////////////////////////////////////
@@ -107,6 +108,7 @@ struct State {
   /// @brief Checks whether the given flag is set. Requires state to be locked.
   //////////////////////////////////////////////////////////////////////////////
   bool isSet(State::Flag flag) const;
+  bool isSet(State::Flag flag1, State::Flag flag2) const;
 
   //////////////////////////////////////////////////////////////////////////////
   /// @brief Toggles the given flag. Requires state to be locked.

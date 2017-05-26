@@ -25,12 +25,13 @@
 #define ARANGOD_AQL_GEO_H 1
 
 #include "Basics/Common.h"
+#include "Aql/AqlValue.h"
 
 namespace arangodb {
 
 namespace velocypack {
-class Builder;
-class Slice;
+  class Builder;
+  class Slice;
 }
 
 namespace aql {
@@ -43,6 +44,7 @@ class Geo {
 
  public:
    int testFunction(const int test);
+   //bool equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
  private:
 
 };

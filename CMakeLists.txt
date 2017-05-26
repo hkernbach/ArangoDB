@@ -409,6 +409,8 @@ include_directories(${PROJECT_SOURCE_DIR}/3rdParty/linenoise-ng/include)
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/linenoise-ng/src)
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/velocypack/include)
 include_directories(${PROJECT_SOURCE_DIR}/3rdParty/rocksdb/v5.1.4/include)
+include_directories(${PROJECT_SOURCE_DIR}/3rdParty/s2)
+include_directories(${PROJECT_SOURCE_DIR}/3rdParty/s2/geometry)
 
 include_directories(${PROJECT_BINARY_DIR})
 include_directories(${PROJECT_BINARY_DIR}/lib)

@@ -423,6 +423,7 @@ target_link_libraries(arangoserver
   ${MSVC_LIBS}
   ${V8_LIBS}
   ${ROCKSDB_LIBS}
+  s2geo
   boost_boost
   boost_system
   ${SYSTEM_LIBRARIES}

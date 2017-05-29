@@ -28,7 +28,6 @@
 #include <velocypack/Iterator.h>
 #include <velocypack/velocypack-aliases.h>
 
-/*
 #include <geometry/s2.h>
 #include <geometry/s2loop.h>
 #include <geometry/s2polygon.h>
@@ -40,15 +39,16 @@ using std::vector;
 
 #include <string>
 using std::string;
-*/
 
 using namespace arangodb::basics;
 using namespace arangodb::aql;
 
-int testFunction(const int test) {
+class S2Polygon;
+
+int Geo::testFunction(const int test) {
   return 1;
 }
-/*
+
 static double ParseDouble(const string& str) {
   char* end_ptr = NULL;
   double value = strtod(str.c_str(), &end_ptr);
@@ -88,6 +88,8 @@ S2Polygon* MakePolygon(string const& str) {
   vector<S2Loop*> loops;
 
   for (int i = 0; i < loop_strs.size(); ++i) {
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "variable: " << typeid(loop_strs[i]).name();
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "typeof: " << loop_strs[i];
     S2Loop* loop = MakeLoop(loop_strs[i]);
     loop->Normalize();
     loops.push_back(loop);
@@ -96,7 +98,7 @@ S2Polygon* MakePolygon(string const& str) {
 }
 
 /// @brief function EQUALS
-bool equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+bool Geo::equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   bool result;
 
   const string wesseling = "50.8300:6.9175, 50.8044:6.9381, 50.7752:6.9949,  50.7927:7.0271,  50.8189:7.0209, 50.8365,6.9755";
@@ -107,5 +109,3 @@ bool equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
 
   return result;
 };
-
-*/

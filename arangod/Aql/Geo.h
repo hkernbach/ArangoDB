@@ -44,7 +44,7 @@ class Geo {
 
  public:
    int testFunction(const int test);
-   //bool equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
  private:
 
 };

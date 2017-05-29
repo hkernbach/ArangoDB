@@ -2327,8 +2327,6 @@ AqlValue Functions::GeoPolygon(arangodb::aql::Query* query,
     }
   }
 
-  // TODO: Was passiert wenn ich das object nicht close und die funktion vorher returned?
-  
   b.close();
   b.close();
   return AqlValue(b);
@@ -2361,6 +2359,8 @@ AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
   
   AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 0);
   AqlValue geoJSONB = ExtractFunctionParameterValue(trx, parameters, 1);
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "A: " << geoJSONA.isObject();
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "B: " << geoJSONB.isObject();
   if (!geoJSONA.isObject() || !geoJSONB.isObject()) {
     RegisterWarning(query, "GEO_EQUALS",
                     TRI_ERROR_QUERY_ARRAY_EXPECTED); //TODO change to object
@@ -2371,9 +2371,12 @@ AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
 
   Geo g;
   int a;
+  bool b;
   // a = g.equalsPolygon(geoJSONA, geoJSONB);
   a = g.testFunction(1);
+  b = g.equalsPolygon(geoJSONA, geoJSONB);
   LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result: " << a;
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result: " << b;
 }
 
 /// @brief function FLATTEN

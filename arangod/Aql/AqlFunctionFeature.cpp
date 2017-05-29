@@ -439,7 +439,7 @@ void AqlFunctionFeature::addGeoFunctions() {
 
 void AqlFunctionFeature::addGeometryFunctions() {
   // geometry functions
-  add({"GEO_EQUALS", "AQL_GEO_EQUALS", "a", true, true, false, true, true,
+  add({"GEO_EQUALS", "AQL_GEO_EQUALS", "a,a", true, true, false, true, true,
        &Functions::GeoEquals});
 }
 

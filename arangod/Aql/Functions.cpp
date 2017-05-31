@@ -31,6 +31,7 @@
 #include "Aql/Function.h"
 #include "Aql/Query.h"
 #include "Aql/Geo.h"
+#include "Aql/GeoParser.h"
 #include "Basics/Exceptions.h"
 #include "Basics/ScopeGuard.h"
 #include "Basics/StringBuffer.h"
@@ -2230,7 +2231,6 @@ AqlValue Functions::Distance(arangodb::aql::Query* query,
 AqlValue Functions::GeoPoint(arangodb::aql::Query* query,
                              transaction::Methods* trx,
                              VPackFunctionParameters const& parameters) {
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "running here geo point";
   ValidateParameters(parameters, "GEO_POINT", 2, 2);
   
   size_t const n = parameters.size();
@@ -2352,6 +2352,24 @@ AqlValue Functions::GeoMultiPolygon(arangodb::aql::Query* query,
                              VPackFunctionParameters const& parameters) {
 }
 
+AqlValue Functions::GeoContains(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  
+  AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 0);
+  AqlValue geoJSONB = ExtractFunctionParameterValue(trx, parameters, 1);
+  if (!geoJSONA.isObject() || !geoJSONB.isObject()) {
+    RegisterWarning(query, "GEO_CONTAINS",
+                    TRI_ERROR_QUERY_ARRAY_EXPECTED); //TODO change to object
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+
+  Geo g;
+  if (g.contains(geoJSONA, geoJSONB)) {
+    return AqlValue(arangodb::basics::VelocyPackHelper::TrueValue());
+  }
+  return AqlValue(arangodb::basics::VelocyPackHelper::FalseValue());
+}
 
 AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
                              transaction::Methods* trx,
@@ -2359,24 +2377,17 @@ AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
   
   AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 0);
   AqlValue geoJSONB = ExtractFunctionParameterValue(trx, parameters, 1);
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "A: " << geoJSONA.isObject();
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "B: " << geoJSONB.isObject();
   if (!geoJSONA.isObject() || !geoJSONB.isObject()) {
     RegisterWarning(query, "GEO_EQUALS",
                     TRI_ERROR_QUERY_ARRAY_EXPECTED); //TODO change to object
     return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
   }
 
-  // TODO: verify if geo objects are valid
-
   Geo g;
-  int a;
-  bool b;
-  // a = g.equalsPolygon(geoJSONA, geoJSONB);
-  a = g.testFunction(1);
-  b = g.equalsPolygon(geoJSONA, geoJSONB);
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result: " << a;
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result: " << b;
+  if (g.equals(geoJSONA, geoJSONB)) {
+    return AqlValue(arangodb::basics::VelocyPackHelper::TrueValue());
+  }
+  return AqlValue(arangodb::basics::VelocyPackHelper::FalseValue());
 }
 
 /// @brief function FLATTEN

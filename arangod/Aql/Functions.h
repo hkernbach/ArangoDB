@@ -206,6 +206,8 @@ struct Functions {
                             VPackFunctionParameters const&);
    static AqlValue GeoEquals(arangodb::aql::Query*, transaction::Methods*,
                             VPackFunctionParameters const&);
+   static AqlValue GeoContains(arangodb::aql::Query*, transaction::Methods*,
+                            VPackFunctionParameters const&);
    static AqlValue Flatten(arangodb::aql::Query*, transaction::Methods*,
                            VPackFunctionParameters const&);
    static AqlValue Zip(arangodb::aql::Query*, transaction::Methods*,

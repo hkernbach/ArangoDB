@@ -435,6 +435,8 @@ void AqlFunctionFeature::addGeometryFunctions() {
   // geometry functions
   add({"GEO_EQUALS", "AQL_GEO_EQUALS", "a,a", true, true, false, true, true,
        &Functions::GeoEquals});
+  add({"GEO_CONTAINS", "AQL_GEO_CONTAINS", "a,a", true, true, false, true, true,
+       &Functions::GeoContains});
 }
 
 void AqlFunctionFeature::addGeometryTypeFunctions() {

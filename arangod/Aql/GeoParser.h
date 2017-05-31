@@ -21,11 +21,17 @@
 /// @author Heiko Kernbach
 ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef ARANGOD_AQL_GEO_H
-#define ARANGOD_AQL_GEO_H 1
+#ifndef ARANGOD_AQL_GEOPARSER_H
+#define ARANGOD_AQL_GEOPARSER_H 1
 
 #include "Basics/Common.h"
 #include "Aql/AqlValue.h"
+
+#include <geometry/s2.h>
+#include <geometry/s2loop.h>
+#include <geometry/s2polygon.h>
+#include <geometry/strings/split.h>
+#include <geometry/strings/strutil.h>
 
 namespace arangodb {
 
@@ -36,20 +42,28 @@ namespace velocypack {
 
 namespace aql {
 
-class Geo {
- public:
-  //explicit Geo(arangodb::velocypack::Slice const&);
+  class GeoParser {
+    public:
+      virtual ~GeoParser() {}
 
-  virtual ~Geo() {}
+    public:
+      enum GeoJSONType {
+        GEOJSON_UNKNOWN = 0,
+        GEOJSON_POINT,
+        GEOJSON_LINESTRING,
+        GEOJSON_POLYGON,
+        GEOJSON_MULTI_POINT,
+        GEOJSON_MULTI_LINESTRING,
+        GEOJSON_MULTI_POLYGON,
+        GEOJSON_GEOMETRY_COLLECTION
+      };
 
- public:
-   bool equals(const AqlValue geoJSONA, const AqlValue geoJSONB);
-   bool equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
-   bool contains(const AqlValue geoJSONA, const AqlValue geoJSONB);
-   bool containsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
- private:
+      bool parseGeoJSONType(const AqlValue geoJSON);
+      bool parseGeoJSONTypePolygon(const AqlValue geoJSON);
+      S2Polygon* parseGeoJSONPolygon(const AqlValue geoJSON);
+    private:
 
-};
+  };
 
 }  // namespace aql
 }  // namespace arangodb

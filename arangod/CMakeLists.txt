@@ -134,6 +134,7 @@ SET(ARANGOD_SOURCES
   Aql/Function.cpp
   Aql/Functions.cpp
   Aql/Geo.cpp
+  Aql/GeoParser.cpp
   Aql/Graphs.cpp
   Aql/GraphNode.cpp
   Aql/IndexBlock.cpp

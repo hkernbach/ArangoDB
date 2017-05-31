@@ -59,6 +59,7 @@ namespace aql {
       };
 
       bool parseGeoJSONType(const AqlValue geoJSON);
+      bool parseGeoJSONTypePoint(const AqlValue geoJSON);
       bool parseGeoJSONTypePolygon(const AqlValue geoJSON);
       S2Polygon* parseGeoJSONPolygon(const AqlValue geoJSON);
     private:

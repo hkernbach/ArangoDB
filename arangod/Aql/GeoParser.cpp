@@ -116,25 +116,27 @@ bool GeoParser::parseGeoJSONTypePolygon(const AqlValue geoJSON) {
   return 1;
 };
 
-// begin helper functions
-/*
-static double ParseDouble(const string& str) {
-  char* end_ptr = NULL;
-  double value = strtod(str.c_str(), &end_ptr);
-  // CHECK(end_ptr && *end_ptr == 0) << ": str == \"" << str << "\"";
-  return value;
-}
-
-void ParseLatLngs(string const& str, vector<S2LatLng>* latlngs) {
-  vector<pair<string, string> > p;
-  DictionaryParse(str, &p);
-  latlngs->clear();
-  for (int i = 0; i < p.size(); ++i) {
-    latlngs->push_back(S2LatLng::FromDegrees(ParseDouble(p[i].first),
-          ParseDouble(p[i].second)));
+/// @brief parse GeoJSON Point Type
+bool GeoParser::parseGeoJSONTypePoint(const AqlValue geoJSON) {
+  if (!geoJSON.isObject()) {
+    return 0;
   }
-}
-*/
+
+  VPackSlice slice = geoJSON.slice();
+  VPackSlice type = slice.get("type");
+ 
+  if (!type.isString()) {
+    return GeoParser::GEOJSON_UNKNOWN;
+  }
+
+  const string& typeString = type.copyString();
+
+  // verify type
+  if (GEOJSON_TYPE_POINT != typeString) {
+    return 0;
+  }
+  return 1;
+};
 
 // parse geojson coordinates into s2 points
 void ParsePoints(const AqlValue geoJSON, vector<S2Point>* vertices) {
@@ -167,11 +169,9 @@ S2Polygon* MakePolygon(const AqlValue geoJSON) {
   loops.push_back(loop);
   return new S2Polygon(&loops);  // Takes ownership.
 }
-// end helper functions
 
 /// @brief create and return polygon
 S2Polygon* GeoParser::parseGeoJSONPolygon(const AqlValue geoJSON) {
-  // const string sa = "50.8300:6.9175, 50.8044:6.9381, 50.7752:6.9949,  50.7927:7.0271,  50.8189:7.0209, 50.8365,6.9755";
   // TODO #1: verify polygon values
   // VerifyPolygon(geoJSON);
 

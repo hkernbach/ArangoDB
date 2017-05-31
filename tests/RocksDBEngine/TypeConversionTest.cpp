@@ -47,9 +47,13 @@ void doFromToTest(double num){
 template <typename T>
 void doFromToTest(T num){
   T x = num , y;
-  char s[sizeof(x)];
-  toPersistent(x,&s[0]);
-  y = fromPersistent<decltype(y)>(&s[0]);
+  char s[sizeof(x)] = {0};
+  char* p1 = &s[0];
+  char* p2 = p1;
+  toPersistent(x,p1);
+  y = fromPersistent<T>(p2);
+  CAPTURE(x);
+  CAPTURE(y);
   CHECK((x == y));
 }
 
@@ -63,12 +67,36 @@ SECTION("test_from_to_persist_uint64"){
   doFromToTest(std::numeric_limits<uint64_t>::max());
 }
 
+SECTION("test_from_to_persist_uint32"){
+  doFromToTest(std::numeric_limits<uint32_t>::min());
+  doFromToTest(std::numeric_limits<uint32_t>::max()/2);
+  doFromToTest(std::numeric_limits<uint32_t>::max());
+}
+
+SECTION("test_from_to_persist_uint16"){
+  doFromToTest(std::numeric_limits<uint16_t>::min());
+  doFromToTest(std::numeric_limits<uint16_t>::max()/2);
+  doFromToTest(std::numeric_limits<uint16_t>::max());
+}
+
+SECTION("test_from_to_persist_int64"){
+  doFromToTest(std::numeric_limits<int64_t>::min());
+  doFromToTest(std::numeric_limits<int64_t>::lowest());
+  doFromToTest(std::numeric_limits<int64_t>::max()/2);
+  doFromToTest(std::numeric_limits<int64_t>::max());
+}
 
 SECTION("test_from_to_persist_int32"){
   doFromToTest(std::numeric_limits<int32_t>::min());
   doFromToTest(std::numeric_limits<int32_t>::lowest());
   doFromToTest(std::numeric_limits<int32_t>::max()/2);
   doFromToTest(std::numeric_limits<int32_t>::max());
+}
+SECTION("test_from_to_persist_int32"){
+  doFromToTest(std::numeric_limits<int16_t>::min());
+  doFromToTest(std::numeric_limits<int16_t>::lowest());
+  doFromToTest(std::numeric_limits<int16_t>::max()/2);
+  doFromToTest(std::numeric_limits<int16_t>::max());
 }
 
 // @brief generate tests

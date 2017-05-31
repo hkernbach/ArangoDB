@@ -336,6 +336,7 @@ SET(ARANGOD_SOURCES
   Transaction/Context.cpp
   Transaction/Helpers.cpp
   Transaction/Methods.cpp
+  Transaction/Options.cpp
   Transaction/StandaloneContext.cpp
   Transaction/V8Context.cpp
   Utils/CollectionKeys.cpp

@@ -64,9 +64,14 @@ bool GeoParser::parseGeoJSONType(const AqlValue geoJSON) {
 
   VPackSlice slice = geoJSON.slice();
   VPackSlice type = slice.get("type");
+  VPackSlice coordinates = slice.get("coordinates");
  
   if (!type.isString()) {
     return GeoParser::GEOJSON_UNKNOWN;
+  }
+
+  if (!coordinates.isArray()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON coordinates format.");
   }
 
   const string& typeString = type.copyString();
@@ -112,6 +117,7 @@ bool GeoParser::parseGeoJSONTypePolygon(const AqlValue geoJSON) {
 };
 
 // begin helper functions
+/*
 static double ParseDouble(const string& str) {
   char* end_ptr = NULL;
   double value = strtod(str.c_str(), &end_ptr);
@@ -128,45 +134,47 @@ void ParseLatLngs(string const& str, vector<S2LatLng>* latlngs) {
           ParseDouble(p[i].second)));
   }
 }
+*/
 
-void ParsePoints(string const& str, vector<S2Point>* vertices) {
+// parse geojson coordinates into s2 points
+void ParsePoints(const AqlValue geoJSON, vector<S2Point>* vertices) {
   vector<S2LatLng> latlngs;
-  ParseLatLngs(str, &latlngs);
   vertices->clear();
-  for (int i = 0; i < latlngs.size(); ++i) {
-    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "latlngs: " << latlngs[i];
-    // FORMAT [50.8300000, 6.9175000]
-    vertices->push_back(latlngs[i].ToPoint());
+
+  VPackSlice slice = geoJSON.slice();
+  VPackSlice coordinates = slice.get("coordinates");
+
+  if (coordinates.isArray()) {
+    for (auto const& coordinate : VPackArrayIterator(coordinates)) {
+      vertices->push_back(S2LatLng::FromDegrees(coordinate.at(0).getNumber<double>(),
+        coordinate.at(1).getNumber<double>()).ToPoint());
+    }
   }
 }
 
-static S2Loop* MakeLoop(string const& str) {
+static S2Loop* MakeLoop(const AqlValue geoJSON) {
   vector<S2Point> vertices;
-  ParsePoints(str, &vertices);
+  ParsePoints(geoJSON, &vertices);
   return new S2Loop(vertices);
 }
 
 // create a s2 polygon function
-S2Polygon* MakePolygon(string const& str) {
-  vector<string> loop_strs;
-  SplitStringUsing(str, ";", &loop_strs);
+S2Polygon* MakePolygon(const AqlValue geoJSON) {
   vector<S2Loop*> loops;
 
-  for (int i = 0; i < loop_strs.size(); ++i) {
-    S2Loop* loop = MakeLoop(loop_strs[i]);
-    loop->Normalize();
-    loops.push_back(loop);
-  }
+  S2Loop* loop = MakeLoop(geoJSON);
+  loop->Normalize();
+  loops.push_back(loop);
   return new S2Polygon(&loops);  // Takes ownership.
 }
 // end helper functions
 
 /// @brief create and return polygon
 S2Polygon* GeoParser::parseGeoJSONPolygon(const AqlValue geoJSON) {
-  const string sa = "50.8300:6.9175, 50.8044:6.9381, 50.7752:6.9949,  50.7927:7.0271,  50.8189:7.0209, 50.8365,6.9755";
+  // const string sa = "50.8300:6.9175, 50.8044:6.9381, 50.7752:6.9949,  50.7927:7.0271,  50.8189:7.0209, 50.8365,6.9755";
   // TODO #1: verify polygon values
   // VerifyPolygon(geoJSON);
 
   // TODO #2: build polygon
-  return MakePolygon(sa);
+  return MakePolygon(geoJSON);
 };

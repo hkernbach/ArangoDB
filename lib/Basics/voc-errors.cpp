@@ -270,6 +270,7 @@ void TRI_InitializeErrorMessages () {
   REG_ERROR(SIMPLE_CLIENT_COULD_NOT_WRITE, "could not write to server");
   REG_ERROR(SIMPLE_CLIENT_COULD_NOT_READ, "could not read from server");
   REG_ERROR(COMMUNICATOR_REQUEST_ABORTED, "Request aborted");
+  REG_ERROR(COMMUNICATOR_DISABLED, "Communication was disabled");
   REG_ERROR(ERROR_MALFORMED_MANIFEST_FILE, "failed to parse manifest file");
   REG_ERROR(ERROR_INVALID_SERVICE_MANIFEST, "manifest file is invalid");
   REG_ERROR(ERROR_SERVICE_FILES_MISSING, "service files missing");
@@ -298,6 +299,7 @@ void TRI_InitializeErrorMessages () {
   REG_ERROR(ERROR_AGENCY_INFORM_MUST_CONTAIN_ACTIVE, "Inform message must contain array 'active'");
   REG_ERROR(ERROR_AGENCY_INFORM_MUST_CONTAIN_POOL, "Inform message must contain object 'pool'");
   REG_ERROR(ERROR_AGENCY_INQUIRE_CLIENT_ID_MUST_BE_STRING, "Inquiry failed");
+  REG_ERROR(ERROR_AGENCY_CANNOT_REBUILD_DBS, "Cannot rebuild readDB and spearHead");
   REG_ERROR(ERROR_SUPERVISION_GENERAL_FAILURE, "general supervision failure");
   REG_ERROR(ERROR_DISPATCHER_IS_STOPPING, "dispatcher stopped");
   REG_ERROR(ERROR_QUEUE_UNKNOWN, "named queue does not exist");

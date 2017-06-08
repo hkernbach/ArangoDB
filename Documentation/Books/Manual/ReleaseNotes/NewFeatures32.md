@@ -217,7 +217,7 @@ Foxx
 
 
 Distributed Graph Processing
-------
+----------------------------
 
 * We added support for executing distributed graph algorithms aka `Pregel`. 
 * Users can run arbitrary algorithms on an entire graph, including in cluster mode.
@@ -238,7 +238,7 @@ AQL
   statements in AQL, without the need to use the somewhat limited special-purpose geo AQL 
   functions `NEAR` or `WITHIN`.
   
-  Compared to using thespecial purpose AQL functions this approach has the
+  Compared to using the special purpose AQL functions this approach has the
   advantage that it is more composable, and will also honor any `LIMIT` values
   used in the AQL query.
 
@@ -257,10 +257,22 @@ AQL
         FILTER DISTANCE(doc.latitude, doc.longitude, 0, 0) < 2000 
         RETURN doc
 
-  Note that this will work in the MMFiles engine only.
-
 
 ### Miscellaneous improvements
+
+* added `REGEX_REPLACE` AQL function
+
+  `REGEX_REPLACE(text, search, replacement, caseInsensitive) → string`
+
+  Replace the pattern *search* with the string *replacement* in the string
+  *text*, using regular expression matching.
+
+  - **text** (string): the string to search in
+  - **search** (string): a regular expression search pattern
+  - **replacement** (string): the string to replace the *search* pattern with
+  - returns **string** (string): the string *text* with the *search* regex
+    pattern replaced with the *replacement* string wherever the pattern exists
+    in *text*
 
 * added new startup option `--query.fail-on-warning` to make AQL queries
   abort instead of continuing with warnings. 
@@ -340,3 +352,14 @@ Foxx
 * it's now possible to provide your own version of the `graphql-sync` module when using the [GraphQL extensions for Foxx](../Foxx/GraphQL.md) by passing a copy of the module using the new _graphql_ option.
 
 * custom API endpoints can now be tagged using the [tag method](../Foxx/Router/Endpoints.md#tag) to generate a cleaner Swagger documentation.
+
+
+Miscellaneous Changes
+---------------------
+
+* arangod now validates several OS/environment settings on startup and warns if
+  the settings are non-ideal. It additionally will print out ways to remedy the
+  options.
+  
+  Most of the checks are executed on Linux systems only.
+

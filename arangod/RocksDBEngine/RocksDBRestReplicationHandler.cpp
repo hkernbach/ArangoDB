@@ -439,15 +439,7 @@ void RocksDBRestReplicationHandler::handleCommandBatch() {
 
     _vocbase->updateReplicationClient(serverId, ctx->lastTick());
 
-    // now extend the blocker
-    // StorageEngine* engine = EngineSelectorFeature::ENGINE;
-    // res = engine->extendCompactionBlocker(_vocbase, id, expires);
-
-    if (res == TRI_ERROR_NO_ERROR) {
-      resetResponse(rest::ResponseCode::NO_CONTENT);
-    } else {
-      generateError(GeneralResponse::responseCode(res), res);
-    }
+    resetResponse(rest::ResponseCode::NO_CONTENT);
     return;
   }
 
@@ -2090,6 +2082,7 @@ void RocksDBRestReplicationHandler::handleCommandHoldReadLockCollection() {
   double now = TRI_microtime();
   double startTime = now;
   double endTime = startTime + ttl;
+  bool stopping = false;
 
   {
     CONDITION_LOCKER(locker, _condVar);
@@ -2099,12 +2092,21 @@ void RocksDBRestReplicationHandler::handleCommandHoldReadLockCollection() {
       if (it == _holdReadLockJobs.end()) {
         break;
       }
+      if (application_features::ApplicationServer::isStopping()) {
+        stopping = true;
+        break;
+      }
       now = TRI_microtime();
     }
     auto it = _holdReadLockJobs.find(id);
     if (it != _holdReadLockJobs.end()) {
       _holdReadLockJobs.erase(it);
     }
+  }
+
+  if (stopping) {
+    generateError(rest::ResponseCode::SERVER_ERROR, TRI_ERROR_SHUTTING_DOWN);
+    return;
   }
 
   VPackBuilder b;

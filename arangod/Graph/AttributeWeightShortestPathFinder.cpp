@@ -230,7 +230,7 @@ bool AttributeWeightShortestPathFinder::shortestPath(
   // Insert all vertices and edges at front of vector
   // Do NOT! insert the intermediate vertex
   while (!s->_predecessor.empty()) {
-    result._edges.push_front(s->_edge.get());
+    result._edges.push_front(std::move(s->_edge));
     result._vertices.push_front(StringRef(s->_predecessor));
     s = forward._pq.find(s->_predecessor);
   }
@@ -240,7 +240,7 @@ bool AttributeWeightShortestPathFinder::shortestPath(
   // Also insert the intermediate vertex
   s = backward._pq.find(_intermediate);
   while (!s->_predecessor.empty()) {
-    result._edges.emplace_back(s->_edge.get());
+    result._edges.emplace_back(std::move(s->_edge));
     result._vertices.emplace_back(StringRef(s->_predecessor));
     s = backward._pq.find(s->_predecessor);
   }
@@ -288,15 +288,26 @@ void AttributeWeightShortestPathFinder::expandVertex(
   std::unordered_map<StringRef, size_t> candidates;
   auto callback = [&](std::unique_ptr<EdgeDocumentToken>&& eid, VPackSlice edge,
                       size_t cursorIdx) -> void {
-    StringRef fromTmp(transaction::helpers::extractFromFromDocument(edge));
-    StringRef toTmp(transaction::helpers::extractToFromDocument(edge));
-    StringRef from = _options->cache()->persistString(fromTmp);
-    StringRef to = _options->cache()->persistString(toTmp);
-    double currentWeight = _options->weightEdge(edge);
-    if (from == vertex) {
-      inserter(candidates, result, from, to, currentWeight, std::move(eid));
+    if (edge.isString()) {
+      VPackSlice doc = _options->cache()->lookupToken(eid.get());
+      double currentWeight = _options->weightEdge(doc);
+      StringRef other = _options->cache()->persistString(StringRef(edge));
+      if (other.compare(vertex) != 0) {
+        inserter(candidates, result, vertex, other, currentWeight, std::move(eid));
+      } else {
+        inserter(candidates, result, other, vertex, currentWeight, std::move(eid));
+      }
     } else {
-      inserter(candidates, result, to, from, currentWeight, std::move(eid));
+      StringRef fromTmp(transaction::helpers::extractFromFromDocument(edge));
+      StringRef toTmp(transaction::helpers::extractToFromDocument(edge));
+      StringRef from = _options->cache()->persistString(fromTmp);
+      StringRef to = _options->cache()->persistString(toTmp);
+      double currentWeight = _options->weightEdge(edge);
+      if (from == vertex) {
+        inserter(candidates, result, from, to, currentWeight, std::move(eid));
+      } else {
+        inserter(candidates, result, to, from, currentWeight, std::move(eid));
+      }
     }
   };
 

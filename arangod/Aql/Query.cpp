@@ -23,7 +23,6 @@
 
 #include "Query.h"
 
-#include "ApplicationFeatures/ApplicationServer.h"
 #include "Aql/AqlItemBlock.h"
 #include "Aql/AqlTransaction.h"
 #include "Aql/ExecutionBlock.h"
@@ -43,7 +42,6 @@
 #include "Cluster/ServerState.h"
 #include "Logger/Logger.h"
 #include "RestServer/AqlFeature.h"
-#include "RestServer/QueryRegistryFeature.h"
 #include "StorageEngine/TransactionState.h"
 #include "Transaction/Methods.h"
 #include "Transaction/StandaloneContext.h"
@@ -90,7 +88,6 @@ Query::Query(bool contextOwnedByExterior, TRI_vocbase_t* vocbase,
       _trx(nullptr),
       _warnings(),
       _startTime(TRI_microtime()),
-      _queryRegistry(application_features::ApplicationServer::getFeature<arangodb::QueryRegistryFeature>("QueryRegistry")),
       _part(part),
       _contextOwnedByExterior(contextOwnedByExterior),
       _killed(false),
@@ -99,6 +96,14 @@ Query::Query(bool contextOwnedByExterior, TRI_vocbase_t* vocbase,
   AqlFeature* aql = AqlFeature::lease();
   if (aql == nullptr) {
     THROW_ARANGO_EXCEPTION(TRI_ERROR_SHUTTING_DOWN);
+  }
+
+  if (_contextOwnedByExterior) {
+    // copy transaction options from global state into our local query options
+    TransactionState* state = transaction::V8Context::getParentState();
+    if (state != nullptr) {
+      _queryOptions.transactionOptions = state->options();
+    }
   }
   
   // populate query options
@@ -162,7 +167,6 @@ Query::Query(bool contextOwnedByExterior, TRI_vocbase_t* vocbase,
       _trx(nullptr),
       _warnings(),
       _startTime(TRI_microtime()),
-      _queryRegistry(application_features::ApplicationServer::getFeature<arangodb::QueryRegistryFeature>("QueryRegistry")),
       _part(part),
       _contextOwnedByExterior(contextOwnedByExterior),
       _killed(false),
@@ -248,8 +252,9 @@ Query* Query::clone(QueryPart part, bool withPlan) {
 
   TRI_ASSERT(clone->_trx == nullptr);
 
-  clone->_trx = _trx->clone();  // A daughter transaction which does not
-                                // actually lock the collections
+  // A daughter transaction which does not
+  // actually lock the collections
+  clone->_trx = _trx->clone(_queryOptions.transactionOptions);  
 
   Result res = clone->_trx->begin();
 
@@ -418,12 +423,12 @@ ExecutionPlan* Query::prepare() {
   std::unique_ptr<ExecutionPlan> plan;
 
   if (!_queryString.empty()) {
-    auto parser = std::make_unique<Parser>(this);
+    Parser parser(this);
     
-    parser->parse(false);
+    parser.parse(false);
     // put in bind parameters
-    parser->ast()->injectBindParameters(_bindParameters);
-    _isModificationQuery = parser->isModificationQuery();
+    parser.ast()->injectBindParameters(_bindParameters);
+    _isModificationQuery = parser.isModificationQuery();
   }
 
   TRI_ASSERT(_trx == nullptr); 

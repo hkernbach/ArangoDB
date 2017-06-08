@@ -127,7 +127,10 @@ bool SingleServerEdgeCursor::next(
     } else {
       _cache.clear();
       auto cb = [&](DocumentIdentifierToken const& token) {
-        _cache.emplace_back(token);
+        if (token._data != 0) {
+          // Document not found
+          _cache.emplace_back(token);
+        }
       };
       bool tmp = cursor->next(cb, 1000);
       TRI_ASSERT(tmp == cursor->hasMore());
@@ -166,9 +169,9 @@ void SingleServerEdgeCursor::readAll(
       LogicalCollection* collection = cursor->collection();
       auto cid = collection->cid();
       if (cursor->hasExtra()) {
-        auto cb = [&](DocumentIdentifierToken const& token, VPackSlice doc) {
+        auto cb = [&](DocumentIdentifierToken const& token, VPackSlice edge) {
           _opts->cache()->increaseCounter();
-          callback(std::make_unique<SingleServerEdgeDocumentToken>(cid, token), doc, cursorId);
+          callback(std::make_unique<SingleServerEdgeDocumentToken>(cid, token), edge, cursorId);
         };
         cursor->allWithExtra(cb);
       } else {
@@ -184,3 +187,4 @@ void SingleServerEdgeCursor::readAll(
     }
   }
 }
+

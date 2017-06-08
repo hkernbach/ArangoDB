@@ -647,6 +647,8 @@
 ///   Will be raised when the client could not read data.
 /// - 2100: @LIT{Request aborted}
 ///   Request was aborted.
+/// - 2101: @LIT{Communication was disabled}
+///   Communication was disabled.
 /// - 3000: @LIT{failed to parse manifest file}
 ///   The service manifest file is not well-formed JSON.
 /// - 3001: @LIT{manifest file is invalid}
@@ -706,6 +708,9 @@
 ///   The inform message in the agency must contain an object 'pool'.
 /// - 20020: @LIT{Inquiry failed}
 ///   Inquiry by clientId failed
+/// - 20021: @LIT{Cannot rebuild readDB and spearHead}
+///   Will be raised if the readDB or the spearHead cannot be rebuilt from the
+///   replicated log.
 /// - 20501: @LIT{general supervision failure}
 ///   General supervision failure.
 /// - 21001: @LIT{dispatcher stopped}
@@ -3473,6 +3478,16 @@ void TRI_InitializeErrorMessages ();
 #define TRI_COMMUNICATOR_REQUEST_ABORTED                                  (2100)
 
 ////////////////////////////////////////////////////////////////////////////////
+/// @brief 2101: COMMUNICATOR_DISABLED
+///
+/// Communication was disabled
+///
+/// Communication was disabled.
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_COMMUNICATOR_DISABLED                                         (2101)
+
+////////////////////////////////////////////////////////////////////////////////
 /// @brief 3000: ERROR_MALFORMED_MANIFEST_FILE
 ///
 /// failed to parse manifest file
@@ -3754,6 +3769,17 @@ void TRI_InitializeErrorMessages ();
 ////////////////////////////////////////////////////////////////////////////////
 
 #define TRI_ERROR_AGENCY_INQUIRE_CLIENT_ID_MUST_BE_STRING                 (20020)
+
+////////////////////////////////////////////////////////////////////////////////
+/// @brief 20021: ERROR_AGENCY_CANNOT_REBUILD_DBS
+///
+/// Cannot rebuild readDB and spearHead
+///
+/// Will be raised if the readDB or the spearHead cannot be rebuilt from the
+/// replicated log.
+////////////////////////////////////////////////////////////////////////////////
+
+#define TRI_ERROR_AGENCY_CANNOT_REBUILD_DBS                               (20021)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// @brief 20501: ERROR_SUPERVISION_GENERAL_FAILURE

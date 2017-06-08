@@ -148,7 +148,7 @@ void ConstantWeightShortestPathFinder::fillResult(
   while (it != _leftFound.end() && it->second != nullptr) {
     next = it->second->_pred;
     result._vertices.push_front(next);
-    result._edges.push_front(it->second->_path.get());
+    result._edges.push_front(std::move(it->second->_path));
     it = _leftFound.find(next);
   }
   it = _rightFound.find(n);
@@ -156,7 +156,7 @@ void ConstantWeightShortestPathFinder::fillResult(
   while (it != _rightFound.end() && it->second != nullptr) {
     next = it->second->_pred;
     result._vertices.emplace_back(next);
-    result._edges.emplace_back(it->second->_path.get());
+    result._edges.emplace_back(std::move(it->second->_path));
     it = _rightFound.find(next);
   }
 
@@ -164,6 +164,7 @@ void ConstantWeightShortestPathFinder::fillResult(
     THROW_ARANGO_EXCEPTION(TRI_ERROR_DEBUG);
   }
   _options->fetchVerticesCoordinator(result._vertices);
+  clearVisited();
 }
 
 void ConstantWeightShortestPathFinder::expandVertex(bool backward,
@@ -177,14 +178,22 @@ void ConstantWeightShortestPathFinder::expandVertex(bool backward,
 
   auto callback = [&](std::unique_ptr<EdgeDocumentToken>&& eid, VPackSlice edge,
                       size_t cursorIdx) -> void {
-    StringRef other(transaction::helpers::extractFromFromDocument(edge));
-    if (other == vertex) {
-      other = StringRef(transaction::helpers::extractToFromDocument(edge));
-    }
-    if (other != vertex) {
-      StringRef id = _options->cache()->persistString(other);
-      _edges.emplace_back(std::move(eid));
-      _neighbors.emplace_back(id);
+    if (edge.isString()) {
+      if (edge.compareString(vertex.data(), vertex.length()) != 0) {
+        StringRef id = _options->cache()->persistString(StringRef(edge));
+        _edges.emplace_back(std::move(eid));
+        _neighbors.emplace_back(id);
+      }
+    } else {
+      StringRef other(transaction::helpers::extractFromFromDocument(edge));
+      if (other == vertex) {
+        other = StringRef(transaction::helpers::extractToFromDocument(edge));
+      }
+      if (other != vertex) {
+        StringRef id = _options->cache()->persistString(other);
+        _edges.emplace_back(std::move(eid));
+        _neighbors.emplace_back(id);
+      }
     }
   };
   edgeCursor->readAll(callback);

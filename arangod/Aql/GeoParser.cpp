@@ -170,11 +170,46 @@ S2Polygon* MakePolygon(const AqlValue geoJSON) {
   return new S2Polygon(&loops);  // Takes ownership.
 }
 
+// create a s2 point function
+S2Point MakePoint(const AqlValue geoJSON) {
+  // TODO: Just a placeholder function to compile currently
+  double x = 1.2;
+  double y = 3.4;
+  double z = 5.6;
+  return S2Point(x, y, z).Normalize();
+  // TODO: Just a placeholder function to compile currently
+}
+
+// create a std vector filled with points (multipoint)
+vector<S2Point> MakeMultiPoint(const AqlValue geoJSON) {
+  vector<S2Point> multiPoint;
+  ParsePoints(geoJSON, &multiPoint);
+
+  return multiPoint;
+}
+
 /// @brief create and return polygon
 S2Polygon* GeoParser::parseGeoJSONPolygon(const AqlValue geoJSON) {
   // TODO #1: verify polygon values
   // VerifyPolygon(geoJSON);
 
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result second: " << "s";
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result second: " << "s";
   // TODO #2: build polygon
   return MakePolygon(geoJSON);
+};
+
+/// @brief create multipoint vector
+S2Point GeoParser::parseGeoJSONPoint(const AqlValue geoJSON) {
+  return MakePoint(geoJSON);
+};
+
+/// @brief create multipoint vector
+vector<S2Point> GeoParser::parseGeoJSONMultiPoint(const AqlValue geoJSON) {
+  // TODO #1: verify points values
+  // each points -> VerifyPoint(geoJSON);
+
+
+  // TODO #2: build vector containing points
+  return MakeMultiPoint(geoJSON);
 };

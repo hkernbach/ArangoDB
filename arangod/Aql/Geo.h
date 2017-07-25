@@ -47,6 +47,10 @@ class Geo {
    bool equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
    bool contains(const AqlValue geoJSONA, const AqlValue geoJSONB);
    bool containsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool polygonContainsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   double distance(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   double distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   AqlValue pointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
  private:
 
 };

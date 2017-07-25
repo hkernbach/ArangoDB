@@ -62,7 +62,7 @@ bool Geo::contains(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   }
 };
 
-/// @brief function EQUALS
+/// @brief function CONTAINS
 bool Geo::containsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   GeoParser gp;
   bool result;
@@ -73,6 +73,13 @@ bool Geo::containsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
 
   result = polyA->Contains(polyB);
   return result;
+};
+
+/// @brief function CONTAINS
+bool Geo::polygonContainsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+/*  scoped_ptr<S2Polygon> a(S2Testing::MakePolygon(a_str));
+  EXPECT_TRUE(a->VirtualContainsPoint(S2Testing::MakePoint(b_str)))
+    << " " << a_str << " did not contain " << b_str;*/
 };
 
 bool Geo::equals(const AqlValue geoJSONA, const AqlValue geoJSONB) {
@@ -92,4 +99,42 @@ bool Geo::equals(const AqlValue geoJSONA, const AqlValue geoJSONB) {
 };
 
 bool Geo::equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+};
+
+double Geo::distance(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+  GeoParser gp;
+  if (gp.parseGeoJSONTypePoint(geoJSONA) && gp.parseGeoJSONTypePolygon(geoJSONB)) {
+    return distancePointToPolygon(geoJSONA, geoJSONB);
+  } else if (gp.parseGeoJSONTypePolygon(geoJSONA) && gp.parseGeoJSONTypePoint(geoJSONB)) {
+    return distancePointToPolygon(geoJSONB, geoJSONA);
+  } else {
+    // TODO: add invalid geo json error
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON polygon.");
+  }
+};
+
+double Geo::distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+  GeoParser gp;
+  S2Polygon* poly = gp.parseGeoJSONPolygon(geoJSONB);
+  S2Point point = gp.parseGeoJSONPoint(geoJSONA);
+//  S1Angle distance = S1Angle(poly.Project(point), point);
+//  return distance.degrees();
+};
+
+// Returns all available points within a Polygon
+AqlValue Geo::pointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+  GeoParser gp;
+  // geoJSONA: type MultiPoints
+  // geoJSONB: type Polygon
+
+  // Parse Polygon and MultiPoint
+  S2Polygon* poly = gp.parseGeoJSONPolygon(geoJSONB);
+  vector<S2Point> multiPoint = gp.parseGeoJSONMultiPoint(geoJSONA);
+
+  // 1. Calculate the center of the polygon
+  // 2. Calculate the highest radius available
+  // 3. Get all points within that circle using the geo index
+  // 4. Check each point if it exists in the range of the given polygon
+  // 5. Put all fitting points into a new AqlValue MultiPoint Value and return
+
 };

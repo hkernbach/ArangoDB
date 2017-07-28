@@ -27,6 +27,8 @@
 #include <velocypack/Dumper.h>
 #include <velocypack/Iterator.h>
 #include <velocypack/velocypack-aliases.h>
+#include <velocypack/vpack.h>
+#include <iostream>
 
 #include "ApplicationFeatures/ApplicationServer.h"
 #include "Aql/Function.h"
@@ -2331,6 +2333,7 @@ AqlValue Functions::GeoPolygon(arangodb::aql::Query* query,
 
   b.close();
   b.close();
+
   return AqlValue(b);
 }
 
@@ -2390,6 +2393,28 @@ AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
     return AqlValue(arangodb::basics::VelocyPackHelper::TrueValue());
   }
   return AqlValue(arangodb::basics::VelocyPackHelper::FalseValue());
+}
+
+AqlValue Functions::GeoPointsInPolygon(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  Geo g;
+
+  AqlValue collectionName = ExtractFunctionParameterValue(trx, parameters, 0);
+  AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 1);
+  // AqlValue geoJSONB = ExtractFunctionParameterValue(trx, parameters, 1);
+  /* TODO CHCECK FOR VALID VALUES
+  if (!geoJSONA.isObject() || !geoJSONB.isObject()) {
+    RegisterWarning(query, "GEO_POINTSINPOLYGON",
+                    TRI_ERROR_QUERY_ARRAY_EXPECTED); //TODO change to object
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }*/
+  
+  /*if (geoJSONA.isObject() || !geoJSONB.isObject()) {
+  } else if (!geoJSONA.isObject() || geoJSONB.isObject()) {
+    return g.helperPointsInPolygon(geoJSONB);
+  }*/
+  return g.helperPointsInPolygon(collectionName, geoJSONA, trx);
 }
 
 /// @brief function FLATTEN

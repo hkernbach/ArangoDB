@@ -437,6 +437,8 @@ void AqlFunctionFeature::addGeometryFunctions() {
        &Functions::GeoEquals});
   add({"GEO_CONTAINS", "AQL_GEO_CONTAINS", "a,a", true, true, false, true, true,
        &Functions::GeoContains});
+  add({"GEO_POINTSINPOLYGON", "AQL_GEO_POINTSINPOLYGON", "s,a", true, true, false, true, true,
+       &Functions::GeoPointsInPolygon});
 }
 
 void AqlFunctionFeature::addGeometryTypeFunctions() {

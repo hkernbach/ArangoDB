@@ -51,6 +51,9 @@ class Geo {
    double distance(const AqlValue geoJSONA, const AqlValue geoJSONB);
    double distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
    AqlValue pointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   AqlValue pointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx);
+   AqlValue helperPointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx);
+   // TODO IMPLEMENT AqlValue helperPointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
  private:
 
 };

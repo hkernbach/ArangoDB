@@ -193,8 +193,6 @@ S2Polygon* GeoParser::parseGeoJSONPolygon(const AqlValue geoJSON) {
   // TODO #1: verify polygon values
   // VerifyPolygon(geoJSON);
 
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result second: " << "s";
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result second: " << "s";
   // TODO #2: build polygon
   return MakePolygon(geoJSON);
 };

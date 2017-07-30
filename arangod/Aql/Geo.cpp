@@ -259,48 +259,24 @@ AqlValue buildGeoResult(transaction::Methods* trx,
     ManagedDocumentResult mmdr;
     transaction::BuilderLeaser builder(trx);
     builder->openArray();
-    /*
-    if (!attributeName.empty()) {
-      // We have to copy the entire document
-      for (auto& it : distances) {
-        VPackObjectBuilder docGuard(builder.get());
-        builder->add(attributeName, VPackValue(it._distance));
-        if (collection->readDocument(trx, it._token, mmdr)) {
-          VPackSlice doc(mmdr.vpack());
-          for (auto const& entry : VPackObjectIterator(doc)) {
-            std::string key = entry.key.copyString();
-            if (key != attributeName) {
-              builder->add(key, entry.value);
-            }
-          }
-        }
-      }
-
-    } else {
-    */
 
     AqlValueMaterializer materializer(trx);
     VPackSlice s;
 
     for (auto& it : distances) {
       if (collection->readDocument(trx, it._token, mmdr)) {
-        // TODO check if exist in poly
         VPackSlice doc(mmdr.vpack());
         if (doc.hasKey("coordinates")) {
           VPackSlice coordinates(doc.get("coordinates"));
-          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CHECK: " << coordinates;
-          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CHECK: " << coordinates.isArray();
-          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CHECK: " << coordinates.at(0);
-          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CHECK: " << coordinates.at(1);
-          S2Point point = S2LatLng::FromDegrees(coordinates.at(1).getDouble(), coordinates.at(0).getDouble()).Normalized().ToPoint();
-          bool containss = poly->Contains(point);
-          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CONTAINS: " << containss;
-
+          if (coordinates.at(0).isDouble() && coordinates.at(1).isDouble()) {
+            S2Point point = S2LatLng::FromDegrees(coordinates.at(1).getDouble(), coordinates.at(0).getDouble()).Normalized().ToPoint();
+            if (poly->Contains(point)) {
+              mmdr.addToBuilder(*builder.get(), true);
+            }
+          }
         }
-        mmdr.addToBuilder(*builder.get(), true);
       }
     }
-   // }
     builder->close();
     return AqlValue(builder.get());
   } catch (...) {
@@ -311,13 +287,15 @@ AqlValue buildGeoResult(transaction::Methods* trx,
 // Case A: Returns all available points within a Polygon
 AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx) {
   GeoParser gp;
-  // geoJSONA: type Polygon
+  // collectionName: Collection name
+  // geoJSONA: Must be type Polygon
 
   // Parse Polygon
   S2Polygon* poly = gp.parseGeoJSONPolygon(geoJSONA);
 
   // 1. Calculate the center of the polygon
   S2Point center = poly->GetCentroid();
+
   // 2. Calculate the highest radius available
   double radius = 0.0;
   double calculatedDistance = 0.0;
@@ -328,96 +306,37 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
     if (calculatedDistance > radius) {
       radius = calculatedDistance;
     }
-    // expected
-    // calculatedDistance = new S1Angle(S2Point const& center, S2Point const& i).radians();
-    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "calc: " << calculatedDistance;
   }
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "radius: " << radius;
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "TEST";
 
-  S2LatLng a = S2LatLng::FromDegrees(50.937531, 6.960279).Normalized(); // Cologne
-  S2LatLng b = S2LatLng::FromDegrees(50.737430, 7.098207).Normalized(); // Bonn
-  S1Angle x = a.GetDistance(b);
-  double xx = a.GetDistance(b).radians();
-  double xxx = a.GetDistance(b).degrees();
-
-  // double x = S1Angle(a, b).degrees();
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "distance x: " << x;
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "distance xx: " << xx;
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "distance xxx: " << xxx;
-
-  // TEST 2
-
-  double blabla = S2LatLng::FromDegrees(50.937531, 6.960279).GetDistance(S2LatLng::FromDegrees(50.737430, 7.098207)).degrees();
-  double blablax = S2LatLng::FromDegrees(6.960279, 50.937531).GetDistance(S2LatLng::FromDegrees(7.098207, 50.737430)).degrees();
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "BLABLA 1: " << blabla;
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "BLABLA 2: " << blablax;
-
-  // TEST 2 END
-
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "TEST";
+  /* JUST A DISTANCE TEST PLACEHOLDER
+     S2LatLng a = S2LatLng::FromDegrees(50.937531, 6.960279).Normalized(); // Cologne
+     S2LatLng b = S2LatLng::FromDegrees(50.737430, 7.098207).Normalized(); // Bonn
+     S1Angle x = a.GetDistance(b);
+     LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "distance x: " << x;
+  */ 
 
   // extract limit
   int64_t limitValue = 100;
 
-  // read collection name TODO
+  // read collection name
   std::string const collectionNameString(collectionName.slice().copyString());
 
-  // GET INDEX -- if no index available -> full scan
+  // check if geo index is available -- if no index available -> full scan
   TRI_voc_cid_t cid = trx->resolver()->getCollectionIdLocal(collectionNameString);
   arangodb::MMFilesGeoIndex* index = getGeoIndex(trx, cid, collectionNameString);
 
-    TRI_ASSERT(index != nullptr);    // ?? found ??
-    TRI_ASSERT(trx->isPinned(cid));  // ?? ?? ??
+  TRI_ASSERT(index != nullptr);    // ?? found ??
+  TRI_ASSERT(trx->isPinned(cid));  // ?? ?? ??
 
-    // 3. Get all points within that circle using the geo index
-    GeoCoordinates* cors = index->nearQuery(
-        trx, S2LatLng(center).lat().degrees(), S2LatLng(center).lng().degrees(), static_cast<size_t>(limitValue));
+  // 3a. Get all points within that circle using the geo index
+  GeoCoordinates* cors = index->nearQuery(
+      trx, S2LatLng(center).lat().degrees(), S2LatLng(center).lng().degrees(), static_cast<size_t>(limitValue));
 
-
-
-    AqlValue indexedPoints = buildGeoResult(trx, index->collection(), cors, cid, poly);
-
-
-    //    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "111 ";
-    // 4. Check each point if it exists in the range of the given polygon
-    AqlValueMaterializer materializer(trx);
-      //  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "222 ";
-    VPackSlice s = materializer.slice(indexedPoints, false);
-      //  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "333 ";
-       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "ARRAY 1 " << s;
-    for (auto const& v : VPackArrayIterator(s)) {
-      // v is the document (geo object)
-    //    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "ARRAY XXX " << v;
-      //  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "OBJET " << v.isObject();
-       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "array " << v.isArray();
-       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "number " << v.isNumber();
-       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "string " << v.isString();
-       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "bool " << v.isBool();
-      if (v.isArray()) {
-       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "ARRAY JA ";
-      }
-      /*
-      if (v.isArray()) {
-        for (auto const& geoPoint : VPackArrayIterator(v)) {
-          if (geoPoint.isObject()) {
-            LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "ALLES GUT ";
-          } else {
-            // RegisterInvalidArgumentWarning(query, "GEO_POLYGON");
-            return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
-          }
-        }
-      } else {
-        // RegisterInvalidArgumentWarning(query, "GEO_POLYGON");
-        return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
-      }*/
-    }
-
-    return indexedPoints;
-
-  // S2EdgeUtil::GetDistance(x, a, b).radians()
+  // 4. Check each point if it exists in the range of the given polygon
+  AqlValue indexedPoints = buildGeoResult(trx, index->collection(), cors, cid, poly);
 
   // 5. Put all fitting points into a new AqlValue MultiPoint Value and return
+  return indexedPoints;
 };
 
 // Case B: Check if points are within polygon

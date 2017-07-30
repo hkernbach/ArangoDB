@@ -148,8 +148,8 @@ void ParsePoints(const AqlValue geoJSON, vector<S2Point>* vertices) {
 
   if (coordinates.isArray()) {
     for (auto const& coordinate : VPackArrayIterator(coordinates)) {
-      vertices->push_back(S2LatLng::FromDegrees(coordinate.at(0).getNumber<double>(),
-        coordinate.at(1).getNumber<double>()).ToPoint());
+      vertices->push_back(S2LatLng::FromDegrees(coordinate.at(1).getNumber<double>(),
+        coordinate.at(0).getNumber<double>()).ToPoint());
     }
   }
 }

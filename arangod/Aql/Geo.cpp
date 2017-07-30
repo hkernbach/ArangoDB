@@ -206,12 +206,16 @@ arangodb::MMFilesGeoIndex* getGeoIndex(
 AqlValue buildGeoResult(transaction::Methods* trx,
                                LogicalCollection* collection,
                                GeoCoordinates* cors,
-                               TRI_voc_cid_t const& cid
+                               TRI_voc_cid_t const& cid,
+                               S2Polygon* poly
                                ) {
+
+  // if nullptr, return empty array
   if (cors == nullptr) {
     return AqlValue(arangodb::basics::VelocyPackHelper::EmptyArrayValue());
   }
 
+  // if no results, return empty array
   size_t const nCoords = cors->length;
   if (nCoords == 0) {
     GeoIndex_CoordinatesFree(cors);
@@ -274,8 +278,25 @@ AqlValue buildGeoResult(transaction::Methods* trx,
 
     } else {
     */
+
+    AqlValueMaterializer materializer(trx);
+    VPackSlice s;
+
     for (auto& it : distances) {
       if (collection->readDocument(trx, it._token, mmdr)) {
+        // TODO check if exist in poly
+        VPackSlice doc(mmdr.vpack());
+        if (doc.hasKey("coordinates")) {
+          VPackSlice coordinates(doc.get("coordinates"));
+          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CHECK: " << coordinates;
+          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CHECK: " << coordinates.isArray();
+          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CHECK: " << coordinates.at(0);
+          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CHECK: " << coordinates.at(1);
+          S2Point point = S2LatLng::FromDegrees(coordinates.at(1).getDouble(), coordinates.at(0).getDouble()).Normalized().ToPoint();
+          bool containss = poly->Contains(point);
+          LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "CONTAINS: " << containss;
+
+        }
         mmdr.addToBuilder(*builder.get(), true);
       }
     }
@@ -353,11 +374,49 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
     GeoCoordinates* cors = index->nearQuery(
         trx, S2LatLng(center).lat().degrees(), S2LatLng(center).lng().degrees(), static_cast<size_t>(limitValue));
 
-    AqlValue indexedPoints = buildGeoResult(trx, index->collection(), cors, cid);
+
+
+    AqlValue indexedPoints = buildGeoResult(trx, index->collection(), cors, cid, poly);
+
+
+    //    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "111 ";
+    // 4. Check each point if it exists in the range of the given polygon
+    AqlValueMaterializer materializer(trx);
+      //  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "222 ";
+    VPackSlice s = materializer.slice(indexedPoints, false);
+      //  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "333 ";
+       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "ARRAY 1 " << s;
+    for (auto const& v : VPackArrayIterator(s)) {
+      // v is the document (geo object)
+    //    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "ARRAY XXX " << v;
+      //  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "OBJET " << v.isObject();
+       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "array " << v.isArray();
+       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "number " << v.isNumber();
+       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "string " << v.isString();
+       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "bool " << v.isBool();
+      if (v.isArray()) {
+       // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "ARRAY JA ";
+      }
+      /*
+      if (v.isArray()) {
+        for (auto const& geoPoint : VPackArrayIterator(v)) {
+          if (geoPoint.isObject()) {
+            LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "ALLES GUT ";
+          } else {
+            // RegisterInvalidArgumentWarning(query, "GEO_POLYGON");
+            return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+          }
+        }
+      } else {
+        // RegisterInvalidArgumentWarning(query, "GEO_POLYGON");
+        return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+      }*/
+    }
+
+    return indexedPoints;
 
   // S2EdgeUtil::GetDistance(x, a, b).radians()
 
-  // 4. Check each point if it exists in the range of the given polygon
   // 5. Put all fitting points into a new AqlValue MultiPoint Value and return
 };
 

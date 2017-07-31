@@ -2402,19 +2402,23 @@ AqlValue Functions::GeoPointsInPolygon(arangodb::aql::Query* query,
 
   AqlValue collectionName = ExtractFunctionParameterValue(trx, parameters, 0);
   AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 1);
-  // AqlValue geoJSONB = ExtractFunctionParameterValue(trx, parameters, 1);
-  /* TODO CHCECK FOR VALID VALUES
-  if (!geoJSONA.isObject() || !geoJSONB.isObject()) {
+ 
+  // check if collectionName is a valid string 
+  if (!collectionName.isString()) {
     RegisterWarning(query, "GEO_POINTSINPOLYGON",
-                    TRI_ERROR_QUERY_ARRAY_EXPECTED); //TODO change to object
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
     return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
-  }*/
-  
-  /*if (geoJSONA.isObject() || !geoJSONB.isObject()) {
-  } else if (!geoJSONA.isObject() || geoJSONB.isObject()) {
-    return g.helperPointsInPolygon(geoJSONB);
-  }*/
-  return g.helperPointsInPolygon(collectionName, geoJSONA, trx);
+  }
+
+  // check if geoJSONA is a valid object
+  if (!geoJSONA.isObject()) {
+    RegisterWarning(query, "GEO_POINTSINPOLYGON",
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  } else {
+    // Check if geoJSONA is a valid Polygon
+    return g.helperPointsInPolygon(collectionName, geoJSONA, trx);
+  }
 }
 
 /// @brief function FLATTEN

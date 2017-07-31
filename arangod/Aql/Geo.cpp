@@ -106,13 +106,13 @@ bool Geo::equals(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   }
 };
 
-// Case A: check if given points are within the polygon
+// return all points available which are inside of the given polygon
 AqlValue Geo::helperPointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx) {
   GeoParser gp;
   // verify if object is in geojson format
   if (!gp.parseGeoJSONType(geoJSONA)) {
     // TODO: add invalid geo json error
-    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON type!!.");
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON type.");
   }
 
   if (gp.parseGeoJSONTypePolygon(geoJSONA)) {
@@ -122,25 +122,6 @@ AqlValue Geo::helperPointsInPolygon(const AqlValue collectionName, const AqlValu
     THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON polygon.");
   }
 };
-
-/*
-// Case B: check if given points are within the polygon
-AqlValue Geo::helperPointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
-  GeoParser gp;
-  // verify if object is in geojson format
-  if (!gp.parseGeoJSONType(geoJSONA) || !gp.parseGeoJSONType(geoJSONB)) {
-    // TODO: add invalid geo json error
-    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON type.");
-  }
-
-  if (gp.parseGeoJSONTypePoint(geoJSONA) && gp.parseGeoJSONTypePolygon(geoJSONB)) {
-    return pointsInPolygon(geoJSONA, geoJSONB);
-  } else {
-    // TODO: add invalid geo json error
-    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON polygon.");
-  }
-};
-*/
 
 bool Geo::equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
 };

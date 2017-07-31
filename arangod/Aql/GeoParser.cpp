@@ -205,7 +205,7 @@ S2Point GeoParser::parseGeoJSONPoint(const AqlValue geoJSON) {
 /// @brief create multipoint vector
 vector<S2Point> GeoParser::parseGeoJSONMultiPoint(const AqlValue geoJSON) {
   // TODO #1: verify points values
-  // each points -> VerifyPoint(geoJSON);
+  // each points -> VerifyMultiPoint(geoJSON);
 
 
   // TODO #2: build vector containing points

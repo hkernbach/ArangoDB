@@ -243,7 +243,7 @@ AqlValue buildGeoResult(transaction::Methods* trx,
 
     AqlValueMaterializer materializer(trx);
     VPackSlice s;
-
+    int LENGTH = 0;
     for (auto& it : distances) {
       if (collection->readDocument(trx, it._token, mmdr)) {
         VPackSlice doc(mmdr.vpack());
@@ -252,6 +252,7 @@ AqlValue buildGeoResult(transaction::Methods* trx,
           if (coordinates.at(0).isDouble() && coordinates.at(1).isDouble()) {
             S2Point point = S2LatLng::FromDegrees(coordinates.at(1).getDouble(), coordinates.at(0).getDouble()).Normalized().ToPoint();
             if (poly->Contains(point)) {
+              LENGTH = LENGTH + 1;
               mmdr.addToBuilder(*builder.get(), true);
             }
           }
@@ -259,6 +260,7 @@ AqlValue buildGeoResult(transaction::Methods* trx,
       }
     }
     builder->close();
+     LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LENGTH OF RESULT SET : " << LENGTH;
     return AqlValue(builder.get());
   } catch (...) {
     THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);
@@ -283,11 +285,14 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
 
   vector<S2Point> pointsOfPolygon = gp.parseGeoJSONMultiPoint(geoJSONA);
   for ( auto &i : pointsOfPolygon ) {
-    calculatedDistance = S1Angle(center, i).radians();
+    calculatedDistance = S1Angle(center, i).degrees();
     if (calculatedDistance > radius) {
       radius = calculatedDistance;
     }
   }
+
+  // convert radius to km (100) -> to m (1000)
+  radius = radius * 100 * 1000 + 1000;
 
   /* JUST A DISTANCE TEST PLACEHOLDER
      S2LatLng a = S2LatLng::FromDegrees(50.937531, 6.960279).Normalized(); // Cologne
@@ -295,9 +300,6 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
      S1Angle x = a.GetDistance(b);
      LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "distance x: " << x;
   */ 
-
-  // extract limit
-  int64_t limitValue = 100;
 
   // read collection name
   std::string const collectionNameString(collectionName.slice().copyString());
@@ -309,9 +311,13 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
   TRI_ASSERT(index != nullptr);    // ?? found ??
   TRI_ASSERT(trx->isPinned(cid));  // ?? ?? ??
 
-  // 3a. Get all points within that circle using the geo index
-  GeoCoordinates* cors = index->nearQuery(
-      trx, S2LatLng(center).lat().degrees(), S2LatLng(center).lng().degrees(), static_cast<size_t>(limitValue));
+  // 3a. Get all points within that circle using the geo inde
+
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LONG: " << S2LatLng(center).lat().degrees();
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LAT: " << S2LatLng(center).lng().degrees();
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "RADIUS: " << radius;
+  GeoCoordinates* cors = index->withinQuery(
+      trx, S2LatLng(center).lng().degrees(), S2LatLng(center).lat().degrees(), radius);
 
   // 4. Check each point if it exists in the range of the given polygon
   AqlValue indexedPoints = buildGeoResult(trx, index->collection(), cors, cid, poly);

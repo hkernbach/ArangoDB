@@ -36,6 +36,7 @@
 
 #include <velocypack/Iterator.h>
 #include <velocypack/velocypack-aliases.h>
+
 #include <geometry/s2.h>
 #include <geometry/s2loop.h>
 #include <geometry/s2polygon.h>
@@ -63,19 +64,19 @@ bool Geo::contains(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   }
 
   if (gp.parseGeoJSONTypePolygon(geoJSONA) && gp.parseGeoJSONTypePolygon(geoJSONB)) {
-    return containsPolygon(geoJSONA, geoJSONB);
+    return polygonContainsPolygon(geoJSONA, geoJSONB);
   } else {
     // TODO: add invalid geo json error
     THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON format.");
   }
 };
 
-/// @brief function CONTAINS
-bool Geo::containsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+/// @brief function polygon contained in polygon
+bool Geo::polygonContainsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   GeoParser gp;
   bool result;
   
-  // equals polygon
+  //  polygon
   S2Polygon* polyA = gp.parseGeoJSONPolygon(geoJSONA);
   S2Polygon* polyB = gp.parseGeoJSONPolygon(geoJSONB);
 
@@ -83,13 +84,19 @@ bool Geo::containsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   return result;
 };
 
-/// @brief function CONTAINS
+/// @brief function point contained in polygon
 bool Geo::polygonContainsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB) {
-/*  scoped_ptr<S2Polygon> a(S2Testing::MakePolygon(a_str));
-  EXPECT_TRUE(a->VirtualContainsPoint(S2Testing::MakePoint(b_str)))
-    << " " << a_str << " did not contain " << b_str;*/
+  GeoParser gp;
+  bool result;
+  
+  S2Polygon* poly = gp.parseGeoJSONPolygon(geoJSONA);
+  S2Point point = gp.parseGeoJSONPoint(geoJSONB);
+
+  result = poly->Contains(point);
+  return result;
 };
 
+/// @brief function main equals function which detects types and moves forward with specific function
 bool Geo::equals(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   GeoParser gp;
   // verify if object is in geojson format
@@ -99,10 +106,14 @@ bool Geo::equals(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   }
 
   if (gp.parseGeoJSONTypePolygon(geoJSONA) && gp.parseGeoJSONTypePolygon(geoJSONB)) {
-    return equalsPolygon(geoJSONA, geoJSONB);
+    return polygonEqualsPolygon(geoJSONA, geoJSONB);
+  } else if (gp.parseGeoJSONTypePoint(geoJSONA) && gp.parseGeoJSONTypePoint(geoJSONB)) {
+    return pointEqualsPoint(geoJSONA, geoJSONB);
+  } else if (gp.parseGeoJSONTypePolyline(geoJSONA) && gp.parseGeoJSONTypePolyline(geoJSONB)) {
+    return polylineEqualsPolyline(geoJSONA, geoJSONB);
   } else {
     // TODO: add invalid geo json error
-    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON polygon.");
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "GeoJSON types differ.");
   }
 };
 
@@ -123,27 +134,64 @@ AqlValue Geo::helperPointsInPolygon(const AqlValue collectionName, const AqlValu
   }
 };
 
-bool Geo::equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+bool Geo::pointEqualsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+  GeoParser gp;
+  S2Point pointA = gp.parseGeoJSONPoint(geoJSONA);
+  S2Point pointB = gp.parseGeoJSONPoint(geoJSONB);
+
+  return S2::ApproxEquals(pointA, pointB);
 };
 
-double Geo::distance(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+bool Geo::polygonEqualsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+  GeoParser gp;
+  S2Polygon* polyA = gp.parseGeoJSONPolygon(geoJSONA);
+  S2Polygon* polyB = gp.parseGeoJSONPolygon(geoJSONB);
+
+  return polyA->BoundaryEquals(polyB);
+};
+
+bool Geo::polylineEqualsPolyline(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+  GeoParser gp;
+  S2Polyline* polylineA = gp.parseGeoJSONPolyline(geoJSONA);
+  S2Polyline* polylineB = gp.parseGeoJSONPolyline(geoJSONB);
+
+  return polylineA->ApproxEquals(polylineB);
+};
+
+// main distance function which detects types and moves forward with specific function
+AqlValue Geo::distance(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   GeoParser gp;
   if (gp.parseGeoJSONTypePoint(geoJSONA) && gp.parseGeoJSONTypePolygon(geoJSONB)) {
     return distancePointToPolygon(geoJSONA, geoJSONB);
   } else if (gp.parseGeoJSONTypePolygon(geoJSONA) && gp.parseGeoJSONTypePoint(geoJSONB)) {
     return distancePointToPolygon(geoJSONB, geoJSONA);
+  } else if (gp.parseGeoJSONTypePoint(geoJSONA) && gp.parseGeoJSONTypePoint(geoJSONB)) {
+    return distancePointToPoint(geoJSONA, geoJSONB);
   } else {
     // TODO: add invalid geo json error
     THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON polygon.");
   }
 };
 
-double Geo::distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+// returns the distance of a point to a polygon
+AqlValue Geo::distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   GeoParser gp;
   S2Polygon* poly = gp.parseGeoJSONPolygon(geoJSONB);
   S2Point point = gp.parseGeoJSONPoint(geoJSONA);
-//  S1Angle distance = S1Angle(poly.Project(point), point);
-//  return distance.degrees();
+
+  S1Angle d = S1Angle(poly->Project(point), point);
+  return AqlValue(d.degrees() * 100000000000000000000.0);
+};
+
+// returns the distance of a point to a point
+AqlValue Geo::distancePointToPoint(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+  GeoParser gp;
+  S2Point pointA = gp.parseGeoJSONPoint(geoJSONA);
+  S2Point pointB = gp.parseGeoJSONPoint(geoJSONB);
+
+  S2LatLng x = S2LatLng(pointA).Normalized();
+  S2LatLng y = S2LatLng(pointB).Normalized();
+  return AqlValue(x.GetDistance(y).Normalized().degrees() * 100000000000000000000.0);
 };
 
 /// @brief Load geoindex for collection name
@@ -157,15 +205,19 @@ arangodb::MMFilesGeoIndex* getGeoIndex(
   // It can only be used until trx is finished.
   trx->addCollectionAtRuntime(cid, collectionName);
 
+  // fetch document collection in transactional context
   auto document = trx->documentCollection(cid);
 
+  // if not found, throw exception
   if (document == nullptr) {
     THROW_ARANGO_EXCEPTION_FORMAT(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND,
                                   "'%s'", collectionName.c_str());
   }
 
+  // create empty index object
   arangodb::MMFilesGeoIndex* index = nullptr;
 
+  // look for available geo indices within document collection context
   for (auto const& idx : document->getIndexes()) {
     if (idx->type() == arangodb::Index::TRI_IDX_TYPE_GEO1_INDEX ||
         idx->type() == arangodb::Index::TRI_IDX_TYPE_GEO2_INDEX) {
@@ -174,6 +226,9 @@ arangodb::MMFilesGeoIndex* getGeoIndex(
     }
   }
 
+  // throw exception if no index found, currently this method only works
+  // if a index is available. this will be extended by a full collection
+  // scan in the future. This will be slower, but will return a result.
   if (index == nullptr) {
     THROW_ARANGO_EXCEPTION_PARAMS(TRI_ERROR_QUERY_GEO_INDEX_MISSING,
                                   collectionName.c_str());
@@ -203,6 +258,7 @@ AqlValue buildGeoResult(transaction::Methods* trx,
     return AqlValue(arangodb::basics::VelocyPackHelper::EmptyArrayValue());
   }
 
+  // defines a geo struct with distance value
   struct geo_coordinate_distance_t {
     geo_coordinate_distance_t(double distance, DocumentIdentifierToken token)
         : _distance(distance), _token(token) {}
@@ -223,27 +279,32 @@ AqlValue buildGeoResult(transaction::Methods* trx,
               cors->coordinates[i].data)));
     }
   } catch (...) {
+    // in case of exception -> free geo index
     GeoIndex_CoordinatesFree(cors);
     THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);
   }
 
+  // free geo index
   GeoIndex_CoordinatesFree(cors);
 
   // sort result by distance
   std::sort(distances.begin(), distances.end(),
-            [](geo_coordinate_distance_t const& left,
-               geo_coordinate_distance_t const& right) {
-              return left._distance < right._distance;
-            });
+      [](geo_coordinate_distance_t const& left,
+        geo_coordinate_distance_t const& right) {
+      return left._distance < right._distance;
+      });
 
   try {
     ManagedDocumentResult mmdr;
+    // create builder object within transaction context
     transaction::BuilderLeaser builder(trx);
+    // open result array
     builder->openArray();
 
     AqlValueMaterializer materializer(trx);
     VPackSlice s;
-    int LENGTH = 0;
+    // Debug only. Prints the returned length of results
+    // int LENGTH = 0;
     for (auto& it : distances) {
       if (collection->readDocument(trx, it._token, mmdr)) {
         VPackSlice doc(mmdr.vpack());
@@ -251,23 +312,30 @@ AqlValue buildGeoResult(transaction::Methods* trx,
           VPackSlice coordinates(doc.get("coordinates"));
           if (coordinates.at(0).isDouble() && coordinates.at(1).isDouble()) {
             S2Point point = S2LatLng::FromDegrees(coordinates.at(1).getDouble(), coordinates.at(0).getDouble()).Normalized().ToPoint();
+            // if point is within poly, add object to result set
             if (poly->Contains(point)) {
-              LENGTH = LENGTH + 1;
+              // Debug only. Prints the returned length of results
+              // LENGTH = LENGTH + 1;
               mmdr.addToBuilder(*builder.get(), true);
             }
           }
         }
       }
     }
+    // close result array
     builder->close();
-     LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LENGTH OF RESULT SET : " << LENGTH;
+
+    // Debug only. Prints the returned length of results
+    //LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LENGTH OF RESULT SET : " << LENGTH;
+
+    // return calculated aql value
     return AqlValue(builder.get());
   } catch (...) {
     THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);
   }
 }
 
-// Case A: Returns all available points within a Polygon
+// Returns all available points within a Polygon
 AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx) {
   GeoParser gp;
   // collectionName: Collection name
@@ -291,15 +359,8 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
     }
   }
 
-  // convert radius to km (100) -> to m (1000)
+  // convert radius to to m
   radius = radius * 100 * 1000 + 1000;
-
-  /* JUST A DISTANCE TEST PLACEHOLDER
-     S2LatLng a = S2LatLng::FromDegrees(50.937531, 6.960279).Normalized(); // Cologne
-     S2LatLng b = S2LatLng::FromDegrees(50.737430, 7.098207).Normalized(); // Bonn
-     S1Angle x = a.GetDistance(b);
-     LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "distance x: " << x;
-  */ 
 
   // read collection name
   std::string const collectionNameString(collectionName.slice().copyString());
@@ -308,14 +369,12 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
   TRI_voc_cid_t cid = trx->resolver()->getCollectionIdLocal(collectionNameString);
   arangodb::MMFilesGeoIndex* index = getGeoIndex(trx, cid, collectionNameString);
 
-  TRI_ASSERT(index != nullptr);    // ?? found ??
-  TRI_ASSERT(trx->isPinned(cid));  // ?? ?? ??
+  // if maintainer mode enabled a core will be returned by this if index == nullptr
+  TRI_ASSERT(index != nullptr);
+  // stops whether or not a ditch has been created for the collection
+  TRI_ASSERT(trx->isPinned(cid));
 
   // 3a. Get all points within that circle using the geo inde
-
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LONG: " << S2LatLng(center).lat().degrees();
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LAT: " << S2LatLng(center).lng().degrees();
-  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "RADIUS: " << radius;
   GeoCoordinates* cors = index->withinQuery(
       trx, S2LatLng(center).lng().degrees(), S2LatLng(center).lat().degrees(), radius);
 
@@ -326,35 +385,30 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
   return indexedPoints;
 };
 
-// Case B: Check if points are within polygon
-/*
-AqlValue Geo::pointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+// main intersection function which detects types and moves forward with specific function
+bool Geo::intersect(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   GeoParser gp;
-  // geoJSONA: type MultiPoints
-  // geoJSONB: type Polygon
-
-  // Parse Polygon and MultiPoint
-  S2Polygon* poly = gp.parseGeoJSONPolygon(geoJSONB);
-  vector<S2Point> multiPoint = gp.parseGeoJSONMultiPoint(geoJSONA);
-
-  // 1. Calculate the center of the polygon
-  S2Point center = poly.GetCentroid();
-  // 2. Calculate the highest radius available
-  double distance = 0.0;
-  double calculatedDistance = 0.0;
-
-  vector<S2Point> pointsOfPolygon = gp.parseGeoJSONMultiPoint(geoJSONB);
-  for ( auto &i : pointsOfPolygon ) {
-    calculatedDistance = new S1Angle(S2Point const& center, S2Point const& i).radians();
-    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "distance: " << calculatedDistance;
+  if (!gp.parseGeoJSONType(geoJSONA) || !gp.parseGeoJSONType(geoJSONB)) {
+    // TODO: add invalid geo json error
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON type.");
   }
 
-
-  // S2EdgeUtil::GetDistance(x, a, b).radians()
-
-  // 3. Get all points within that circle using the geo index
-  // 4. Check each point if it exists in the range of the given polygon
-  // 5. Put all fitting points into a new AqlValue MultiPoint Value and return
-
+  if (gp.parseGeoJSONTypePolygon(geoJSONA) && gp.parseGeoJSONTypePolygon(geoJSONB)) {
+    return intersectPolygonWithPolygon(geoJSONA, geoJSONB);
+  } else {
+    // TODO: add invalid geo json error
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON types to match.");
+  }
 };
-*/
+
+// returns bool if poly<->poly intersection is true or false
+bool Geo::intersectPolygonWithPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+  GeoParser gp;
+  bool result;
+
+  S2Polygon* polyA = gp.parseGeoJSONPolygon(geoJSONA);
+  S2Polygon* polyB = gp.parseGeoJSONPolygon(geoJSONB);
+
+  result = polyA->Intersects(polyB);
+  return result;
+};

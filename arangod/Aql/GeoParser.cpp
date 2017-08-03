@@ -116,6 +116,28 @@ bool GeoParser::parseGeoJSONTypePolygon(const AqlValue geoJSON) {
   return 1;
 };
 
+/// @brief parse GeoJSON Polyline/Linetring Type
+bool GeoParser::parseGeoJSONTypePolyline(const AqlValue geoJSON) {
+  if (!geoJSON.isObject()) {
+    return 0;
+  }
+
+  VPackSlice slice = geoJSON.slice();
+  VPackSlice type = slice.get("type");
+ 
+  if (!type.isString()) {
+    return GeoParser::GEOJSON_UNKNOWN;
+  }
+
+  const string& typeString = type.copyString();
+
+  // verify type
+  if (GEOJSON_TYPE_LINESTRING != typeString) {
+    return 0;
+  }
+  return 1;
+};
+
 /// @brief parse GeoJSON Point Type
 bool GeoParser::parseGeoJSONTypePoint(const AqlValue geoJSON) {
   if (!geoJSON.isObject()) {
@@ -170,14 +192,25 @@ S2Polygon* MakePolygon(const AqlValue geoJSON) {
   return new S2Polygon(&loops);  // Takes ownership.
 }
 
+// create a s2 polyline function
+S2Polyline* MakePolyline(const AqlValue geoJSON) {
+  vector<S2Point> vertices;
+  ParsePoints(geoJSON, &vertices);
+  return new S2Polyline(vertices);
+}
+
 // create a s2 point function
 S2Point MakePoint(const AqlValue geoJSON) {
-  // TODO: Just a placeholder function to compile currently
-  double x = 1.2;
-  double y = 3.4;
-  double z = 5.6;
-  return S2Point(x, y, z).Normalize();
-  // TODO: Just a placeholder function to compile currently
+  VPackSlice slice = geoJSON.slice();
+  VPackSlice coordinates = slice.get("coordinates");
+
+  if (coordinates.isArray() && coordinates.length() == 1) {
+    for (auto const& coordinate : VPackArrayIterator(coordinates)) {
+      return S2LatLng::FromDegrees(
+        coordinates.at(1).getDouble(), coordinates.at(0).getDouble()
+      ).Normalized().ToPoint();
+    }
+  }
 }
 
 // create a std vector filled with points (multipoint)
@@ -195,6 +228,15 @@ S2Polygon* GeoParser::parseGeoJSONPolygon(const AqlValue geoJSON) {
 
   // TODO #2: build polygon
   return MakePolygon(geoJSON);
+};
+
+/// @brief create and return polygon
+S2Polyline* GeoParser::parseGeoJSONPolyline(const AqlValue geoJSON) {
+  // TODO #1: verify polygon values
+  // VerifyPolygon(geoJSON);
+
+  // TODO #2: build polygon
+  return MakePolyline(geoJSON);
 };
 
 /// @brief create multipoint vector

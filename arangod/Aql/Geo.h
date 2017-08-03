@@ -43,13 +43,28 @@ class Geo {
   virtual ~Geo() {}
 
  public:
+   // EQUALS functions
    bool equals(const AqlValue geoJSONA, const AqlValue geoJSONB);
-   bool equalsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool polygonEqualsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool pointEqualsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool polylineEqualsPolyline(const AqlValue geoJSONA, const AqlValue geoJSONB);
+
+   // CONTAIN functions
    bool contains(const AqlValue geoJSONA, const AqlValue geoJSONB);
    bool containsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool polygonContainsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
    bool polygonContainsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB);
-   double distance(const AqlValue geoJSONA, const AqlValue geoJSONB);
-   double distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+
+   // DISTANCE functions
+   AqlValue distance(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   AqlValue distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   AqlValue distancePointToPoint(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   
+   // INTERSECT functions
+   bool intersect(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool intersectPolygonWithPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
+
+   // internal and helper functions
    AqlValue pointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
    AqlValue pointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx);
    AqlValue helperPointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx);

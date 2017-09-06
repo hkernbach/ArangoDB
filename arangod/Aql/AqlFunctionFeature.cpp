@@ -433,6 +433,8 @@ void AqlFunctionFeature::addGeoFunctions() {
 
 void AqlFunctionFeature::addGeometryFunctions() {
   // geometry functions
+  add({"GEO_EQUALS", "AQL_GEO_EQUALS", "a", true, true, false, true, true,
+       &Functions::GeoEquals});
 }
 
 void AqlFunctionFeature::addGeometryTypeFunctions() {
@@ -447,7 +449,7 @@ void AqlFunctionFeature::addGeometryTypeFunctions() {
        &Functions::GeoMultiLineString});
   add({"GEO_POLYGON", "AQL_GEO_POLYGON", "l", true, true, false, true, true,
        &Functions::GeoPolygon});
-  add({"GEO_POLYGON", "AQL_GEO_MULTIPOLYGON", "l", true, true, false, true, true,
+  add({"GEO_MULTIPOLYGON", "AQL_GEO_MULTIPOLYGON", "l", true, true, false, true, true,
        &Functions::GeoMultiPolygon});
 }
 

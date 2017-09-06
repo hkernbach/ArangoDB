@@ -32,6 +32,7 @@
 #include "Aql/Function.h"
 #include "Aql/Query.h"
 #include "Aql/RegexCache.h"
+#include "Aql/Geo.h"
 #include "Basics/Exceptions.h"
 #include "Basics/ScopeGuard.h"
 #include "Basics/StringBuffer.h"
@@ -2201,10 +2202,32 @@ AqlValue Functions::GeoMultiPolygon(arangodb::aql::Query* query,
                              VPackFunctionParameters const& parameters) {
 }
 
+
+AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  
+  AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 0);
+  AqlValue geoJSONB = ExtractFunctionParameterValue(trx, parameters, 1);
+  if (!geoJSONA.isObject() || !geoJSONB.isObject()) {
+    RegisterWarning(query, "GEO_EQUALS",
+                    TRI_ERROR_QUERY_ARRAY_EXPECTED); //TODO change to object
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+
+  // TODO: verify if geo objects are valid
+
+  Geo g;
+  int a;
+  // a = g.equalsPolygon(geoJSONA, geoJSONB);
+  a = g.testFunction(1);
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result: " << a;
+}
+
 /// @brief function FLATTEN
 AqlValue Functions::Flatten(arangodb::aql::Query* query,
                             transaction::Methods* trx,
-                            VPackFunctionParameters const& parameters) {
+      VPackFunctionParameters const& parameters) {
   ValidateParameters(parameters, "FLATTEN", 1, 2);
 
   AqlValue list = ExtractFunctionParameterValue(trx, parameters, 0);

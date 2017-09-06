@@ -422,21 +422,28 @@ void AqlFunctionFeature::addDocumentFunctions() {
 }
 
 void AqlFunctionFeature::addGeoFunctions() {
+  // old JS based geo functions
   // geo functions
   add({"DISTANCE", "AQL_DISTANCE", ".,.,.,.", true, true, false, true, true,
        &Functions::Distance});
   add({"WITHIN_RECTANGLE", "AQL_WITHIN_RECTANGLE", "h.,.,.,.,.", true, false,
        true, false, true});
+  //add({"DISTANCE", "AQL_DISTANCE", "n,n,n,n", true, true, false, true, true,
+  //     &Functions::GeoDistance});
   add({"IS_IN_POLYGON", "AQL_IS_IN_POLYGON", ".,.|.", true, true, false, true,
        true});
 }
 
 void AqlFunctionFeature::addGeometryFunctions() {
-  // geometry functions
+  // new c++ based geometry functions
   add({"GEO_EQUALS", "AQL_GEO_EQUALS", "a,a", true, true, false, true, true,
        &Functions::GeoEquals});
   add({"GEO_CONTAINS", "AQL_GEO_CONTAINS", "a,a", true, true, false, true, true,
        &Functions::GeoContains});
+  add({"GEO_DISTANCE", "AQL_GEO_DISTANCE", "a,a", true, true, false, true, true,
+       &Functions::GeoDistance});
+  add({"GEO_INTERSECT", "AQL_GEO_INTERSECT", "a,a", true, true, false, true, true,
+       &Functions::GeoIntersects});
   add({"GEO_POINTSINPOLYGON", "AQL_GEO_POINTSINPOLYGON", "s,a", true, true, false, true, true,
        &Functions::GeoPointsInPolygon});
 }

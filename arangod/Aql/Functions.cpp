@@ -2024,7 +2024,7 @@ AqlValue Functions::Outersection(arangodb::aql::Query* query,
 }
 
 /// @brief function DISTANCE
-AqlValue Functions::Distance(arangodb::aql::Query* query,
+/* AqlValue Functions::GeoDistance(arangodb::aql::Query* query,
                              transaction::Methods* trx,
                              VPackFunctionParameters const& parameters) {
   ValidateParameters(parameters, "DISTANCE", 4, 4);
@@ -2075,7 +2075,7 @@ AqlValue Functions::Distance(arangodb::aql::Query* query,
   double const EARTHRADIAN = 6371000.0; // metres
 
   return NumberValue(trx, EARTHRADIAN * c, true);
-}
+} */
 
 /// @brief function GEO_POINT
 AqlValue Functions::GeoPoint(arangodb::aql::Query* query,
@@ -2122,6 +2122,7 @@ AqlValue Functions::GeoPoint(arangodb::aql::Query* query,
   b.add(Value(lat1Value));
   b.close();
   b.close();
+
   return AqlValue(b);
 }
 
@@ -2241,6 +2242,7 @@ AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
   return AqlValue(arangodb::basics::VelocyPackHelper::FalseValue());
 }
 
+/// @brief function POINTS IN POLYGON
 AqlValue Functions::GeoPointsInPolygon(arangodb::aql::Query* query,
                              transaction::Methods* trx,
                              VPackFunctionParameters const& parameters) {
@@ -2264,6 +2266,48 @@ AqlValue Functions::GeoPointsInPolygon(arangodb::aql::Query* query,
   } else {
     // Check if geoJSONA is a valid Polygon
     return g.helperPointsInPolygon(collectionName, geoJSONA, trx);
+  }
+}
+
+/// @brief function INTERSECT
+AqlValue Functions::GeoIntersects(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  Geo g;
+
+  AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 0);
+  AqlValue geoJSONB = ExtractFunctionParameterValue(trx, parameters, 1);
+ 
+  // check if geoJSONA is a valid object
+  if (!geoJSONA.isObject() || !geoJSONB.isObject()) {
+    RegisterWarning(query, "GEO_INTERSECT",
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  } else {
+    if (g.equals(geoJSONA, geoJSONB)) {
+      return AqlValue(arangodb::basics::VelocyPackHelper::TrueValue());
+    } else {
+      return AqlValue(arangodb::basics::VelocyPackHelper::FalseValue());
+    }
+  }
+}
+
+/// @brief function DISTANCE
+AqlValue Functions::GeoDistance(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  Geo g;
+
+  AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 0);
+  AqlValue geoJSONB = ExtractFunctionParameterValue(trx, parameters, 1);
+ 
+  // check if geoJSONA is a valid object
+  if (!geoJSONA.isObject() || !geoJSONB.isObject()) {
+    RegisterWarning(query, "GEO_DISTANCE",
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  } else {
+    return g.distance(geoJSONA, geoJSONB);
   }
 }
 

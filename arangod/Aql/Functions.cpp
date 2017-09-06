@@ -58,6 +58,14 @@ using namespace arangodb;
 using namespace arangodb::aql;
 using namespace arangodb::velocypack;
 
+/// @brief thread-local cache for compiled regexes (REGEX function)
+thread_local std::unordered_map<std::string, RegexMatcher*>* RegexCache =
+    nullptr;
+/// @brief thread-local cache for compiled regexes (LIKE function)
+thread_local std::unordered_map<std::string, RegexMatcher*>* LikeCache =
+    nullptr;
+>>>>>>> bdb3783df6f2526b4a0c6443a91ee578fbc74332
+
 /// @brief convert a number value into an AqlValue
 static AqlValue NumberValue(transaction::Methods* trx, int value) {
   transaction::BuilderLeaser builder(trx);

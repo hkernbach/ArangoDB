@@ -1167,6 +1167,8 @@ function startInstanceSingleServer (instanceInfo, protocol, options,
 
 function startInstance (protocol, options, addArgs, testname, tmpDir) {
   let rootDir = fs.join(tmpDir || fs.getTempPath(), testname);
+  print("rootdir: " + rootDir + " = fs.join(tmpDir " + tmpDir);
+
   let instanceInfo = {
     rootDir,
     arangods: []
@@ -1175,11 +1177,13 @@ function startInstance (protocol, options, addArgs, testname, tmpDir) {
   const startTime = time();
   try {
     if (options.hasOwnProperty('server')) {
-      return { endpoint: options.server,
+      let rc = { endpoint: options.server,
                rootDir: options.serverRoot,
                url: options.server.replace('tcp', 'http'),
                arangods: []
-             };
+               };
+      arango.reconnect(rc.endpoint, '_system', 'root', '');
+      return rc;
     } else if (options.cluster) {
       startInstanceCluster(instanceInfo, protocol, options,
                            addArgs, rootDir);
@@ -1195,6 +1199,7 @@ function startInstance (protocol, options, addArgs, testname, tmpDir) {
       let count = 0;
       instanceInfo.arangods.forEach(arangod => {
         while (true) {
+          wait(0.5, false);
           if (options.useReconnect) {
             try {
               arango.reconnect(instanceInfo.endpoint, '_system', options.username, options.password);
@@ -1215,7 +1220,6 @@ function startInstance (protocol, options, addArgs, testname, tmpDir) {
               throw new Error('startup failed! bailing out!');
             }
           }
-          wait(0.5, false);
         }
       });
     }
@@ -1239,7 +1243,6 @@ function startInstance (protocol, options, addArgs, testname, tmpDir) {
     print(e, e.stack);
     return false;
   }
-
   return instanceInfo;
 }
 

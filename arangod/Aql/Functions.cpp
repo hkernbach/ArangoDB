@@ -2031,7 +2031,7 @@ AqlValue Functions::Outersection(arangodb::aql::Query* query,
 }
 
 /// @brief function DISTANCE
-/* AqlValue Functions::GeoDistance(arangodb::aql::Query* query,
+AqlValue Functions::Distance(arangodb::aql::Query* query,
                              transaction::Methods* trx,
                              VPackFunctionParameters const& parameters) {
   ValidateParameters(parameters, "DISTANCE", 4, 4);
@@ -2058,7 +2058,7 @@ AqlValue Functions::Outersection(arangodb::aql::Query* query,
   error |= failed;
   double lon2Value = lon2.toDouble(trx, failed);
   error |= failed;
-    
+
   if (error) {
     RegisterWarning(query, "DISTANCE",
                     TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
@@ -2069,8 +2069,8 @@ AqlValue Functions::Outersection(arangodb::aql::Query* query,
     return degrees * (std::acos(-1.0) / 180.0);
   };
 
-  double p1 = toRadians(lat1Value); 
-  double p2 = toRadians(lat2Value); 
+  double p1 = toRadians(lat1Value);
+  double p2 = toRadians(lat2Value);
   double d1 = toRadians(lat2Value - lat1Value);
   double d2 = toRadians(lon2Value - lon1Value);
 
@@ -2082,7 +2082,7 @@ AqlValue Functions::Outersection(arangodb::aql::Query* query,
   double const EARTHRADIAN = 6371000.0; // metres
 
   return NumberValue(trx, EARTHRADIAN * c, true);
-} */
+}
 
 /// @brief function GEO_POINT
 AqlValue Functions::GeoPoint(arangodb::aql::Query* query,

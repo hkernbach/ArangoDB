@@ -428,47 +428,41 @@ void AqlFunctionFeature::addDocumentFunctions() {
 
 void AqlFunctionFeature::addGeoFunctions() {
   // geo functions
-  // old JS based geo functions
-  add({"WITHIN_RECTANGLE", "AQL_WITHIN_RECTANGLE", "h.,.,.,.,.", true, false,
-       true, false, true});
-  add({"IS_IN_POLYGON", "AQL_IS_IN_POLYGON", ".,.|.", true, true, false, true,
   add({"DISTANCE", ".,.,.,.", true, false, true, true,
-       &Functions::Distance});
+      &Functions::Distance});
   add({"WITHIN_RECTANGLE", "h.,.,.,.,.", false,
-       true, false, true});
+      true, false, true});
   add({"IS_IN_POLYGON", ".,.|.", true, false, true,
-       true});
+      true});
 }
 
 void AqlFunctionFeature::addGeometryFunctions() {
   // new c++ based geometry functions
-  add({"GEO_DISTANCE", "AQL_GEO_DISTANCE", "n,n,n,n", true, true, false, true, true,
-       &Functions::GeoDistance});
-  add({"GEO_EQUALS", "AQL_GEO_EQUALS", "a,a", true, true, false, true, true,
+  add({"GEO_EQUALS", ".,.", true, false, true, true,
        &Functions::GeoEquals});
-  add({"GEO_CONTAINS", "AQL_GEO_CONTAINS", "a,a", true, true, false, true, true,
+  add({"GEO_CONTAINS", ".,.", true, false, true, true,
        &Functions::GeoContains});
-  add({"GEO_DISTANCE", "AQL_GEO_DISTANCE", "a,a", true, true, false, true, true,
+  add({"GEO_DISTANCE", ".,.|.,.", true, false, true, true,
        &Functions::GeoDistance});
-  add({"GEO_INTERSECT", "AQL_GEO_INTERSECT", "a,a", true, true, false, true, true,
+  add({"GEO_INTERSECT", ".,.", true, false, true, true,
        &Functions::GeoIntersects});
-  add({"GEO_POINTSINPOLYGON", "AQL_GEO_POINTSINPOLYGON", "s,a", true, true, false, true, true,
+  add({"GEO_POINTSINPOLYGON", "h,.", false, false, true, true,
        &Functions::GeoPointsInPolygon});
 }
 
 void AqlFunctionFeature::addGeometryTypeFunctions() {
   // geometry types
-  add({"GEO_POINT", "AQL_GEO_POINT", "n,n", true, true, false, true, true,
+  add({"GEO_POINT", ".,.", true, false, true, true,
        &Functions::GeoPoint});
-  add({"GEO_MULTIPOINT", "AQL_GEO_MULTIPOINT", "l", true, true, false, true, true,
+  add({"GEO_MULTIPOINT", ".", true, false, true, true,
        &Functions::GeoMultiPoint});
-  add({"GEO_LINESTRING", "AQL_GEO_LINESTRING", "l", true, true, false, true, true,
+  add({"GEO_LINESTRING", ".", true, false, true, true,
        &Functions::GeoLineString});
-  add({"GEO_POINT", "AQL_GEO_MULTILINESTRING", "l", true, true, false, true, true,
+  add({"GEO_MULTILINESTRING", ".", true, false, true, true,
        &Functions::GeoMultiLineString});
-  add({"GEO_POLYGON", "AQL_GEO_POLYGON", "l", true, true, false, true, true,
+  add({"GEO_POLYGON", ".", true, false, true, true,
        &Functions::GeoPolygon});
-  add({"GEO_MULTIPOLYGON", "AQL_GEO_MULTIPOLYGON", "l", true, true, false, true, true,
+  add({"GEO_MULTIPOLYGON", ".", true, false, true, true,
        &Functions::GeoMultiPolygon});
 }
 

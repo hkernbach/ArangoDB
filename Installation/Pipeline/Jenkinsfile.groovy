@@ -106,6 +106,9 @@ useMaintainer = params.Maintainer
 // build user mode
 useUser = params.User
 
+// build docker
+useDocker = true
+
 // run resilience tests
 //runResilience = params.runResilience
 
@@ -210,11 +213,6 @@ def checkEnabledEdition(edition, text) {
 }
 
 def checkEnabledMaintainer(maintainer, os, text) {
-    if (os == 'windows' && maintainer != 'maintainer') {
-        echo "Not ${text} ${maintainer} because ${maintainer} is not enabled under Windows"
-        return false
-    }
-
     if (maintainer == 'maintainer' && ! useMaintainer) {
         echo "Not ${text} ${maintainer} because ${maintainer} is not enabled"
         return false
@@ -280,13 +278,25 @@ def rspecify(os, test) {
     }
 }
 
+def deleteDirDocker(os) {
+    if (os == "linux") {
+        sh "sudo rm -rf build-deb"
+    }
+
+    deleteDir()
+}
+
+def shellAndPipe(command, logfile) {
+  sh "(echo 1 > \"${logfile}.result\" ; ${command} ; echo \$? > \"${logfile}.result\") 2>&1 | tee -a \"${logfile}\" ; exit `cat \"${logfile}.result\"`"
+}
+
 // -----------------------------------------------------------------------------
 // --SECTION--                                                       SCRIPTS SCM
 // -----------------------------------------------------------------------------
 
-def checkoutCommunity() {
+def checkoutCommunity(os) {
     if (cleanBuild) {
-        deleteDir()
+        deleteDirDocker(os)
     }
 
     retry(3) {
@@ -421,18 +431,27 @@ def checkCommitMessages() {
         if (env.BRANCH_NAME == "devel" || env.BRANCH_NAME == "3.2") {
             echo "build of main branch"
 
-            useLinux = true
-            useMac = true
-            useWindows = true
+            restrictions = [
+                // OS EDITION MAINTAINER
+                "build-linux-community-maintainer" : true,
+                "build-linux-enterprise-maintainer" : true,
+                "build-linux-community-user" : true,
+                "build-linux-enterprise-user" : true,
+                "build-mac-community-user" : true,
+                "build-mac-enterprise-user" : true,
+                "build-windows-community-user" : true,
+                "build-windows-enterprise-user" : true,
 
-            useCommunity = true
-            useEnterprise = true
-
-            useMaintainer = true
-            useUser = true
-
-            // runResilience = false
-            runTests = true
+                // OS EDITION MAINTAINER MODE ENGINE
+                "test-linux-community-maintainer-singleserver-mmfiles" : true,
+                "test-linux-community-maintainer-singleserver-rocksdb" : true,
+                "test-linux-enterprise-user-cluster-mmfiles" : true,
+                "test-linux-enterprise-user-cluster-rocksdb" : true,
+                "test-mac-community-user-singleserver-rocksdb" : true,
+                "test-mac-enterprise-user-cluster-rocksdb" : true,
+                "test-windows-community-user-singleserver-rocksdb" : true,
+                "test-windows-mac-enterprise-user-cluster-rocksdb" : true,
+            ]
         }
         else if (env.BRANCH_NAME =~ /^PR-/) {
             echo "build of PR"
@@ -441,9 +460,7 @@ def checkCommitMessages() {
                 // OS EDITION MAINTAINER
                 "build-linux-community-maintainer" : true,
                 "build-linux-enterprise-maintainer" : true,
-                "build-mac-community-maintainer" : true,
                 "build-mac-enterprise-user" : true,
-                "build-windows-community-maintainer" : true,
                 "build-windows-enterprise-maintainer" : true,
 
                 // OS EDITION MAINTAINER MODE ENGINE
@@ -452,14 +469,16 @@ def checkCommitMessages() {
             ]
         }
         else {
+            echo "build of branch"
+
+            useDocker = false
+
             restrictions = [
                 // OS EDITION MAINTAINER
-                "build-linux-community-user" : true,
                 "build-linux-enterprise-maintainer" : true,
 
                 // OS EDITION MAINTAINER MODE ENGINE
-                "test-linux-enterprise-maintainer-cluster-rocksdb" : true,
-                "test-linux-community-user-singleserver-mmfiles" : true
+                "test-linux-enterprise-maintainer-cluster-rocksdb" : true
             ]
         }
     }
@@ -501,6 +520,7 @@ Building Community: ${useCommunity}
 Building Enterprise: ${useEnterprise}
 Building Maintainer: ${useMaintainer}
 Building Non-Maintainer: ${useUser}
+Building Docker: ${useDocker}
 Running Tests: ${runTests}
 """
     }
@@ -574,7 +594,7 @@ def jslint(os, edition, maintainer) {
     def logFile = "${arch}/jslint.log"
 
     try {
-        sh "./Installation/Pipeline/test_jslint.sh | tee ${logFile}"
+        shellAndPipe("./Installation/Pipeline/test_jslint.sh",logFile)
         sh "if grep ERROR ${logFile}; then exit 1; fi"
     }
     catch (exc) {
@@ -584,7 +604,7 @@ def jslint(os, edition, maintainer) {
     }
     finally {
         archiveArtifacts allowEmptyArchive: true,
-            artifacts: "${archDir}-*, ${arch}/**, ${archFail}/**",
+            artifacts: "${archDir}-FAIL.txt, ${arch}/**, ${archFail}/**",
             defaultExcludes: false
     }
 }
@@ -633,8 +653,20 @@ def getTests(os, edition, maintainer, mode, engine) {
             ["shell_replication", "shell_replication", ""],
             rspecify(os, "http_replication")
         ]
+
+        if (maintainer == "maintainer" && os == "linux") {
+            tests += [
+                ["recovery", "recovery", ""]
+            ]
+        }
     }
 
+   if (mode == "cluster") {
+        tests += [
+            ["resilience", "resilience", ""]
+        ]
+    }
+ 
     return tests
 }
 
@@ -643,7 +675,7 @@ def setupTestEnvironment(os, edition, maintainer, logFile, runDir) {
         folderCreateOperation("${runDir}/tmp"),
     ])
 
-    def subdirs = ['build', 'etc', 'js', 'UnitTests']
+    def subdirs = ['build', 'etc', 'js', 'scripts', 'UnitTests']
 
     if (edition == "enterprise") {
        subdirs << "enterprise"
@@ -729,14 +761,15 @@ def executeTests(os, edition, maintainer, mode, engine, portInit, archDir, arch,
                                     powershell "cd ${runDir} ; ${command} | Add-Content -PassThru ${logFile}"
                                 }
                                 else {
-                                    sh "echo \"Host: `hostname`\" | tee ${logFile}"
+                                    sh "echo \"Host: `hostname`\" | tee -a ${logFile}"
                                     sh "echo \"PWD:  `pwd`\" | tee -a ${logFile}"
                                     sh "echo \"Date: `date`\" | tee -a ${logFile}"
 
-                                    command = "(cd ${runDir} ; echo 1 > result ; ${command} ; echo \$? > result) 2>&1 | " +
-                                              "tee -a ${logFile} ; exit `cat ${runDir}/result`"
+                                    shellAndPipe("cd ${runDir} ; ./build/bin/arangosh --version", logFile)
+
+                                    command = "(cd ${runDir} ; ${command})"
                                     echo "executing ${command}"
-                                    sh command
+                                    shellAndPipe(command, logFile)
                                 }
                             }
                         }
@@ -747,7 +780,7 @@ def executeTests(os, edition, maintainer, mode, engine, portInit, archDir, arch,
                         echo "caught error, copying log to ${logFileFailed}: ${msg}"
 
                         fileOperations([
-                            fileCreateOperation(fileContent: 'TEST FAILED: ${msg}', fileName: "${archDir}-FAIL.txt")
+                            fileCreateOperation(fileContent: "TEST FAILED: ${msg}", fileName: "${archDir}-FAIL.txt")
                         ])
 
                         if (os == 'linux' || os == 'mac') {
@@ -767,7 +800,7 @@ def executeTests(os, edition, maintainer, mode, engine, portInit, archDir, arch,
                         checkCoresAndSave(os, runDir, name, archRun)
 
                         archiveArtifacts allowEmptyArchive: true,
-                            artifacts: "${archDir}-*, ${logFileRel}, ${logFileFailedRel}",
+                            artifacts: "${archDir}-FAIL.txt, ${logFileRel}, ${logFileFailedRel}",
                             defaultExcludes: false
                     }
                 }
@@ -819,7 +852,7 @@ def testStep(os, edition, maintainer, mode, engine, stageName) {
                     def archRun    = "${arch}-RUN"
 
                     // clean the current workspace completely
-                    deleteDir()
+                    deleteDirDocker(os)
 
                     // create directories for the artifacts
                     fileOperations([
@@ -850,7 +883,7 @@ def testStep(os, edition, maintainer, mode, engine, stageName) {
 
                         // archive all artifacts
                         archiveArtifacts allowEmptyArchive: true,
-                            artifacts: "${arch}-*, ${archRun}/**",
+                            artifacts: "${archRun}/**",
                             defaultExcludes: false
                     }
                 }
@@ -1006,8 +1039,8 @@ def buildEdition(os, edition, maintainer) {
     def archFail = "${archDir}/01-build-FAIL"
 
     fileOperations([
-        folderDeleteOperation(arch),
         fileDeleteOperation(excludes: '', includes: "${archDir}-*"),
+        folderDeleteOperation(arch),
         folderDeleteOperation(archFail),
         folderCreateOperation(arch)
     ])
@@ -1016,7 +1049,7 @@ def buildEdition(os, edition, maintainer) {
 
     try {
         if (os == 'linux' || os == 'mac') {
-            sh "echo \"Host: `hostname`\" | tee ${logFile}"
+            sh "echo \"Host: `hostname`\" | tee -a ${logFile}"
             sh "echo \"PWD:  `pwd`\" | tee -a ${logFile}"
             sh "echo \"Date: `date`\" | tee -a ${logFile}"
 
@@ -1028,27 +1061,29 @@ def buildEdition(os, edition, maintainer) {
             }
         }
         else if (os == 'windows') {
-            def tmpDir = "${arch}/tmp"
+            // def tmpDir = "${arch}/tmp"
 
-            fileOperations([
-                folderCreateOperation(tmpDir)
-            ])
+            // fileOperations([
+            //     folderCreateOperation(tmpDir)
+            // ])
 
             // withEnv(["TMPDIR=${tmpDir}", "TEMPDIR=${tmpDir}", "TMP=${tmpDir}",
             //          "_MSPDBSRV_ENDPOINT_=${edition}-${env.BUILD_TAG}", "GYP_USE_SEPARATE_MSPDBSRV=1"]) {
-                powershell ". .\\Installation\\Pipeline\\windows\\build_${os}_${edition}.ps1"
+            //    powershell ". .\\Installation\\Pipeline\\windows\\build_${os}_${edition}.ps1"
             // }
 
-            fileOperations([
-                folderDeleteOperation(tmpDir)
-            ])
+            // fileOperations([
+            //     folderDeleteOperation(tmpDir)
+            // ])
+
+            powershell ". .\\Installation\\Pipeline\\windows\\build_${os}_${edition}_${maintainer}.ps1"
         }
     }
     catch (exc) {
         def msg = exc.toString()
         
         fileOperations([
-            fileCreateOperation(fileContent: 'BUILD FAILED: ${msg}', fileName: "${archDir}-FAIL.txt")
+            fileCreateOperation(fileContent: "BUILD FAILED: ${msg}", fileName: "${archDir}-FAIL.txt")
         ])
 
         if (os == 'linux' || os == 'mac') {
@@ -1063,7 +1098,7 @@ def buildEdition(os, edition, maintainer) {
     }
     finally {
         archiveArtifacts allowEmptyArchive: true,
-            artifacts: "${archDir}-*, ${arch}/**, ${archFail}/**",
+            artifacts: "${archDir}-FAIL.txt, ${arch}/**, ${archFail}/**",
             defaultExcludes: false
     }
 }
@@ -1088,20 +1123,72 @@ def buildStepCheck(os, edition, maintainer) {
     return true
 }
 
+def checkoutSource(os, edition) {
+    timeout(30) {
+        checkoutCommunity(os)
+
+        if (edition == "enterprise") {
+            checkoutEnterprise()
+        }
+
+        // checkoutResilience()
+    }
+}
+
+def createDockerImage(edition, maintainer, stageName) {
+    def os = "linux"
+
+    return {
+        if (buildStepCheck(os, edition, maintainer)) {
+            node(buildJenkins[os]) {
+                stage(stageName) {
+                    checkoutSource(os, edition)
+
+                    def archDir  = "${os}-${edition}-${maintainer}"
+                    def arch     = "${archDir}/04-docker"
+                    def archFail = "${archDir}/04-docker-FAIL"
+
+                    fileOperations([
+                        fileDeleteOperation(excludes: '', includes: "${archDir}-*"),
+                        folderDeleteOperation(arch),
+                        folderDeleteOperation(archFail),
+                        folderCreateOperation(arch)
+                    ])
+
+                    def logFile = "${arch}/build.log"
+
+                    def packageName="${os}-${edition}-${maintainer}"
+                    def dockerTag=sourceBranchLabel.replaceAll(/[^0-9a-z]/, '-')
+
+                    withEnv(["DOCKERTAG=${packageName}-${dockerTag}"]) {
+                        try {
+                            shellAndPipe("./scripts/build-docker.sh", logFile)
+                            shellAndPipe("docker tag arangodb:${packageName}-${dockerTag} c1.triagens-gmbh.zz:5000/arangodb/${packageName}:${dockerTag}", logFile)
+                            shellAndPipe("docker push c1.triagens-gmbh.zz:5000/arangodb/${packageName}:${dockerTag}", logFile)
+                        }
+                        catch (exc) {
+                            renameFolder(arch, archFail)
+                            fileOperations([fileCreateOperation(fileContent: 'DOCKER FAILED', fileName: "${archDir}-FAIL.txt")])
+                            throw exc
+                        }
+                        finally {
+                            archiveArtifacts allowEmptyArchive: true,
+                                artifacts: "${archDir}-FAIL.txt, ${arch}/**, ${archFail}/**",
+                                defaultExcludes: false
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 def runEdition(os, edition, maintainer, stageName) {
     return {
         if (buildStepCheck(os, edition, maintainer)) {
             node(buildJenkins[os]) {
                 stage(stageName) {
-                    timeout(30) {
-                        checkoutCommunity()
-
-                        if (edition == "enterprise") {
-                            checkoutEnterprise()
-                        }
-
-                        // checkoutResilience()
-                    }
+                    checkoutSource(os, edition)
 
                     // I concede...we need a lock for windows...I could not get it to run concurrently...
                     // v8 would not build multiple times at the same time on the same machine:
@@ -1154,8 +1241,13 @@ def runOperatingSystems(osList) {
     for (os in osList) {
         for (edition in ['community', 'enterprise']) {
             for (maintainer in ['maintainer', 'user']) {
-                def stageName = "build-${os}-${edition}-${maintainer}"
+                def name = "${os}-${edition}-${maintainer}"
+                def stageName = "build-${name}"
                 branches[stageName] = runEdition(os, edition, maintainer, stageName)
+
+                if (os == 'linux' && useDocker) {
+                    branches["docker-${name}"] = createDockerImage(edition, maintainer, "docker-${name}")
+                }
             }
         }
     }

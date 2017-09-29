@@ -2155,7 +2155,7 @@ AqlValue Functions::GeoPolygon(arangodb::aql::Query* query,
   }
   if (geoArray.length() < 4) {
     RegisterWarning(query, "GEO_POLYGON",
-                    TRI_ERROR_QUERY_ARRAY_EXPECTED); // CHANGE TO LENGTH ERROR
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_NUMBER_MISMATCH);
     return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
   }
   
@@ -2181,6 +2181,64 @@ AqlValue Functions::GeoPolygon(arangodb::aql::Query* query,
       b.close();
     } else {
       RegisterInvalidArgumentWarning(query, "GEO_POLYGON");
+      return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+    }
+  }
+
+  b.close();
+  b.close();
+
+  return AqlValue(b);
+}
+
+/// @brief function GEO_POLYGON
+AqlValue Functions::GeoPolyline(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  ValidateParameters(parameters, "GEO_POLYLINE", 1, 1);
+  
+  size_t const n = parameters.size();
+
+  if (n < 1) {
+    // no parameters
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+
+  AqlValue geoArray = ExtractFunctionParameterValue(trx, parameters, 0);
+  
+  if (!geoArray.isArray()) {
+    RegisterWarning(query, "GEO_POLYLINE",
+                    TRI_ERROR_QUERY_ARRAY_EXPECTED);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+  if (geoArray.length() < 2) {
+    RegisterWarning(query, "GEO_POLYLINE",
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_NUMBER_MISMATCH);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+  
+  Builder b;
+
+  b.add(Value(ValueType::Object));
+  b.add("type", Value("PolyLine"));
+  b.add("coordinates", Value(ValueType::Array));
+  
+  AqlValueMaterializer materializer(trx);
+  VPackSlice s = materializer.slice(geoArray, false);
+  for (auto const& v : VPackArrayIterator(s)) {
+    if (v.isArray()) {
+      b.openArray();
+      for (auto const& coord : VPackArrayIterator(v)) {
+        if (coord.isNumber()) {
+          b.add(Value(coord.getNumber<double>()));
+        } else {
+          RegisterInvalidArgumentWarning(query, "GEO_POLYLINE");
+          return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+        }
+      }
+      b.close();
+    } else {
+      RegisterInvalidArgumentWarning(query, "GEO_POLYLINE");
       return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
     }
   }
@@ -2243,7 +2301,7 @@ AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
   }
 
   Geo g;
-  if (g.equals(geoJSONA, geoJSONB)) {
+  if (g.equals(geoJSONA, geoJSONB, trx)) {
     return AqlValue(arangodb::basics::VelocyPackHelper::TrueValue());
   }
   return AqlValue(arangodb::basics::VelocyPackHelper::FalseValue());
@@ -2291,7 +2349,7 @@ AqlValue Functions::GeoIntersects(arangodb::aql::Query* query,
                     TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
     return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
   } else {
-    if (g.equals(geoJSONA, geoJSONB)) {
+    if (g.equals(geoJSONA, geoJSONB, trx)) {
       return AqlValue(arangodb::basics::VelocyPackHelper::TrueValue());
     } else {
       return AqlValue(arangodb::basics::VelocyPackHelper::FalseValue());
@@ -2314,7 +2372,7 @@ AqlValue Functions::GeoDistance(arangodb::aql::Query* query,
                     TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
     return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
   } else {
-    return g.distance(geoJSONA, geoJSONB);
+    return g.distance(geoJSONA, geoJSONB, trx);
   }
 }
 

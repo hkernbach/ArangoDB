@@ -458,6 +458,8 @@ void AqlFunctionFeature::addGeometryTypeFunctions() {
        &Functions::GeoMultiPoint});
   add({"GEO_LINESTRING", ".", true, false, true, true,
        &Functions::GeoLineString});
+  add({"GEO_POLYLINE", ".", true, false, true, true,
+       &Functions::GeoPolyline});
   add({"GEO_MULTILINESTRING", ".", true, false, true, true,
        &Functions::GeoMultiLineString});
   add({"GEO_POLYGON", ".", true, false, true, true,

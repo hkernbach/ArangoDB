@@ -63,6 +63,7 @@ namespace aql {
       bool parseGeoJSONTypePolygon(const AqlValue geoJSON);
       bool parseGeoJSONTypePolyline(const AqlValue geoJSON);
       S2Point parseGeoJSONPoint(const AqlValue geoJSON);
+      S2LatLng parseGeoJSONLatLng(const AqlValue geoJSON);
       S2Polygon* parseGeoJSONPolygon(const AqlValue geoJSON);
       S2Polyline* parseGeoJSONPolyline(const AqlValue geoJSON);
       vector<S2Point> parseGeoJSONMultiPoint(const AqlValue geoJSON);

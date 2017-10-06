@@ -47,7 +47,7 @@ using namespace arangodb::aql;
 static const string GEOJSON_TYPE = "type";
 // Have one of these values:
 static const string GEOJSON_TYPE_POINT = "Point";
-static const string GEOJSON_TYPE_LINESTRING = "LineString";
+static const string GEOJSON_TYPE_LINESTRING = "PolyLine";
 static const string GEOJSON_TYPE_POLYGON = "Polygon";
 static const string GEOJSON_TYPE_MULTI_POINT = "MultiPoint";
 static const string GEOJSON_TYPE_MULTI_LINESTRING = "MultiLineString";
@@ -102,6 +102,7 @@ bool GeoParser::parseGeoJSONTypePolygon(const AqlValue geoJSON) {
 
   VPackSlice slice = geoJSON.slice();
   VPackSlice type = slice.get("type");
+  VPackSlice coordinates = slice.get("coordinates");
  
   if (!type.isString()) {
     return GeoParser::GEOJSON_UNKNOWN;
@@ -113,6 +114,11 @@ bool GeoParser::parseGeoJSONTypePolygon(const AqlValue geoJSON) {
   if (GEOJSON_TYPE_POLYGON != typeString) {
     return 0;
   }
+
+  if (coordinates.length() < 4) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Too less coordinate values to build a polygon.");
+  }
+
   return 1;
 };
 
@@ -187,8 +193,10 @@ S2Polygon* MakePolygon(const AqlValue geoJSON) {
   vector<S2Loop*> loops;
 
   S2Loop* loop = MakeLoop(geoJSON);
+
   loop->Normalize();
   loops.push_back(loop);
+
   return new S2Polygon(&loops);  // Takes ownership.
 }
 
@@ -207,8 +215,22 @@ S2Point MakePoint(const AqlValue geoJSON) {
   if (coordinates.isArray() && coordinates.length() == 1) {
     for (auto const& coordinate : VPackArrayIterator(coordinates)) {
       return S2LatLng::FromDegrees(
-        coordinates.at(1).getDouble(), coordinates.at(0).getDouble()
+        coordinates.at(0).getDouble(), coordinates.at(1).getDouble()
       ).Normalized().ToPoint();
+    }
+  }
+}
+
+// create a s2 latlng function
+S2LatLng MakeLatLng(const AqlValue geoJSON) {
+  VPackSlice slice = geoJSON.slice();
+  VPackSlice coordinates = slice.get("coordinates");
+
+  if (coordinates.isArray() && coordinates.length() == 1) {
+    for (auto const& coordinate : VPackArrayIterator(coordinates)) {
+      return S2LatLng::FromDegrees(
+        coordinates.at(1).getDouble(), coordinates.at(0).getDouble()
+      ).Normalized();
     }
   }
 }
@@ -223,14 +245,10 @@ vector<S2Point> MakeMultiPoint(const AqlValue geoJSON) {
 
 /// @brief create and return polygon
 S2Polygon* GeoParser::parseGeoJSONPolygon(const AqlValue geoJSON) {
-  // TODO #1: verify polygon values
-  // VerifyPolygon(geoJSON);
-
-  // TODO #2: build polygon
   return MakePolygon(geoJSON);
 };
 
-/// @brief create and return polygon
+/// @brief create and return polyline
 S2Polyline* GeoParser::parseGeoJSONPolyline(const AqlValue geoJSON) {
   // TODO #1: verify polygon values
   // VerifyPolygon(geoJSON);
@@ -239,9 +257,14 @@ S2Polyline* GeoParser::parseGeoJSONPolyline(const AqlValue geoJSON) {
   return MakePolyline(geoJSON);
 };
 
-/// @brief create multipoint vector
+/// @brief create s2 point
 S2Point GeoParser::parseGeoJSONPoint(const AqlValue geoJSON) {
   return MakePoint(geoJSON);
+};
+
+/// @brief create s2 latlng
+S2LatLng GeoParser::parseGeoJSONLatLng(const AqlValue geoJSON) {
+  return MakeLatLng(geoJSON);
 };
 
 /// @brief create multipoint vector

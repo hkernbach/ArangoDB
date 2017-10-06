@@ -44,9 +44,9 @@ class Geo {
 
  public:
    // EQUALS functions
-   bool equals(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool equals(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx);
    bool polygonEqualsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
-   bool pointEqualsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   bool pointEqualsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx);
    bool polylineEqualsPolyline(const AqlValue geoJSONA, const AqlValue geoJSONB);
 
    // CONTAIN functions
@@ -56,9 +56,9 @@ class Geo {
    bool polygonContainsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB);
 
    // DISTANCE functions
-   AqlValue distance(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   AqlValue distance(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx);
    AqlValue distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
-   AqlValue distancePointToPoint(const AqlValue geoJSONA, const AqlValue geoJSONB);
+   AqlValue distancePointToPoint(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx);
    
    // INTERSECT functions
    bool intersect(const AqlValue geoJSONA, const AqlValue geoJSONB);

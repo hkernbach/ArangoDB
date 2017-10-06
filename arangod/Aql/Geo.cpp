@@ -97,7 +97,7 @@ bool Geo::polygonContainsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB)
 };
 
 /// @brief function main equals function which detects types and moves forward with specific function
-bool Geo::equals(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+bool Geo::equals(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx) {
   GeoParser gp;
   // verify if object is in geojson format
   if (!gp.parseGeoJSONType(geoJSONA) || !gp.parseGeoJSONType(geoJSONB)) {
@@ -108,7 +108,7 @@ bool Geo::equals(const AqlValue geoJSONA, const AqlValue geoJSONB) {
   if (gp.parseGeoJSONTypePolygon(geoJSONA) && gp.parseGeoJSONTypePolygon(geoJSONB)) {
     return polygonEqualsPolygon(geoJSONA, geoJSONB);
   } else if (gp.parseGeoJSONTypePoint(geoJSONA) && gp.parseGeoJSONTypePoint(geoJSONB)) {
-    return pointEqualsPoint(geoJSONA, geoJSONB);
+    return pointEqualsPoint(geoJSONA, geoJSONB, trx);
   } else if (gp.parseGeoJSONTypePolyline(geoJSONA) && gp.parseGeoJSONTypePolyline(geoJSONB)) {
     return polylineEqualsPolyline(geoJSONA, geoJSONB);
   } else {
@@ -134,12 +134,12 @@ AqlValue Geo::helperPointsInPolygon(const AqlValue collectionName, const AqlValu
   }
 };
 
-bool Geo::pointEqualsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB) {
-  GeoParser gp;
-  S2Point pointA = gp.parseGeoJSONPoint(geoJSONA);
-  S2Point pointB = gp.parseGeoJSONPoint(geoJSONB);
+bool Geo::pointEqualsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx) {
+  //GeoParser gp;
+  //S2Point pointA = gp.parseGeoJSONPoint(geoJSONA);
+  //S2Point pointB = gp.parseGeoJSONPoint(geoJSONB);
 
-  return S2::ApproxEquals(pointA, pointB);
+  return !AqlValue::Compare(trx, geoJSONA, geoJSONB, true);
 };
 
 bool Geo::polygonEqualsPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB) {
@@ -159,14 +159,14 @@ bool Geo::polylineEqualsPolyline(const AqlValue geoJSONA, const AqlValue geoJSON
 };
 
 // main distance function which detects types and moves forward with specific function
-AqlValue Geo::distance(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+AqlValue Geo::distance(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx) {
   GeoParser gp;
   if (gp.parseGeoJSONTypePoint(geoJSONA) && gp.parseGeoJSONTypePolygon(geoJSONB)) {
     return distancePointToPolygon(geoJSONA, geoJSONB);
   } else if (gp.parseGeoJSONTypePolygon(geoJSONA) && gp.parseGeoJSONTypePoint(geoJSONB)) {
     return distancePointToPolygon(geoJSONB, geoJSONA);
   } else if (gp.parseGeoJSONTypePoint(geoJSONA) && gp.parseGeoJSONTypePoint(geoJSONB)) {
-    return distancePointToPoint(geoJSONA, geoJSONB);
+    return distancePointToPoint(geoJSONA, geoJSONB, trx);
   } else {
     // TODO: add invalid geo json error
     THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON polygon.");
@@ -180,18 +180,30 @@ AqlValue Geo::distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geo
   S2Point point = gp.parseGeoJSONPoint(geoJSONA);
 
   S1Angle d = S1Angle(poly->Project(point), point);
-  return AqlValue(d.degrees() * 100000000000000000000.0);
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result in (I): " << d.degrees();
+  return AqlValue(AqlValueHintDouble(d.degrees() * 100000000000000000000.0));
 };
 
 // returns the distance of a point to a point
-AqlValue Geo::distancePointToPoint(const AqlValue geoJSONA, const AqlValue geoJSONB) {
+AqlValue Geo::distancePointToPoint(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx) {
   GeoParser gp;
-  S2Point pointA = gp.parseGeoJSONPoint(geoJSONA);
-  S2Point pointB = gp.parseGeoJSONPoint(geoJSONB);
+  Geo g;
 
-  S2LatLng x = S2LatLng(pointA).Normalized();
-  S2LatLng y = S2LatLng(pointB).Normalized();
-  return AqlValue(x.GetDistance(y).Normalized().degrees() * 100000000000000000000.0);
+  if (g.pointEqualsPoint(geoJSONA, geoJSONB, trx)) {
+    return AqlValue(0.0);
+  } else {
+    S2Point pointA = gp.parseGeoJSONPoint(geoJSONA);
+    S2Point pointB = gp.parseGeoJSONPoint(geoJSONB);
+
+    S2LatLng x = S2LatLng(pointA).Normalized();
+    S2LatLng y = S2LatLng(pointB).Normalized();
+    //double test2 = x.GetDistance(y).degrees();
+    //double test = x.GetDistance(y).degrees() * 100000000000000000000.0;
+    // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result in (II): " << test2;
+    // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result in (I): " << test;
+
+    return AqlValue(AqlValueHintDouble(x.GetDistance(y).Normalized().degrees() * 100000000000000000000.0));
+  }
 };
 
 /// @brief Load geoindex for collection name

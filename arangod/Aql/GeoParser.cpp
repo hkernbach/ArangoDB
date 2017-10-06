@@ -212,8 +212,9 @@ S2Point MakePoint(const AqlValue geoJSON) {
   VPackSlice slice = geoJSON.slice();
   VPackSlice coordinates = slice.get("coordinates");
 
-  if (coordinates.isArray() && coordinates.length() == 1) {
+  if (coordinates.isArray() && coordinates.length() == 2) {
     for (auto const& coordinate : VPackArrayIterator(coordinates)) {
+      // Note that it's (lat, lng) for S2 
       return S2LatLng::FromDegrees(
         coordinates.at(0).getDouble(), coordinates.at(1).getDouble()
       ).Normalized().ToPoint();
@@ -226,7 +227,7 @@ S2LatLng MakeLatLng(const AqlValue geoJSON) {
   VPackSlice slice = geoJSON.slice();
   VPackSlice coordinates = slice.get("coordinates");
 
-  if (coordinates.isArray() && coordinates.length() == 1) {
+  if (coordinates.isArray() && coordinates.length() == 2) {
     for (auto const& coordinate : VPackArrayIterator(coordinates)) {
       return S2LatLng::FromDegrees(
         coordinates.at(1).getDouble(), coordinates.at(0).getDouble()

@@ -181,7 +181,7 @@ AqlValue Geo::distancePointToPolygon(const AqlValue geoJSONA, const AqlValue geo
 
   S1Angle d = S1Angle(poly->Project(point), point);
   LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result in (I): " << d.degrees();
-  return AqlValue(AqlValueHintDouble(d.degrees() * 100000000000000000000.0));
+  return AqlValue(AqlValueHintDouble(d.degrees() * 10000));
 };
 
 // returns the distance of a point to a point
@@ -190,19 +190,15 @@ AqlValue Geo::distancePointToPoint(const AqlValue geoJSONA, const AqlValue geoJS
   Geo g;
 
   if (g.pointEqualsPoint(geoJSONA, geoJSONB, trx)) {
-    return AqlValue(0.0);
+    return AqlValue(AqlValueHintDouble(0.0));
   } else {
     S2Point pointA = gp.parseGeoJSONPoint(geoJSONA);
     S2Point pointB = gp.parseGeoJSONPoint(geoJSONB);
 
-    S2LatLng x = S2LatLng(pointA).Normalized();
-    S2LatLng y = S2LatLng(pointB).Normalized();
-    //double test2 = x.GetDistance(y).degrees();
-    //double test = x.GetDistance(y).degrees() * 100000000000000000000.0;
-    // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result in (II): " << test2;
-    // LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "result in (I): " << test;
+    S2LatLng x = S2LatLng(pointA);
+    S2LatLng y = S2LatLng(pointB);
 
-    return AqlValue(AqlValueHintDouble(x.GetDistance(y).Normalized().degrees() * 100000000000000000000.0));
+    return AqlValue(AqlValueHintDouble(x.GetDistance(y).Normalized().degrees() * 10000));
   }
 };
 
@@ -337,7 +333,7 @@ AqlValue buildGeoResult(transaction::Methods* trx,
     // close result array
     builder->close();
 
-    // Debug only. Prints the returned length of results
+    //Debug only. Prints the returned length of results
     //LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LENGTH OF RESULT SET : " << LENGTH;
 
     // return calculated aql value

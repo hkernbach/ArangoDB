@@ -23,16 +23,21 @@
 
 #include "Geo.h"
 #include "GeoParser.h"
+
 #include "Basics/VelocyPackHelper.h"
 #include "Logger/Logger.h"
-
 #include "Transaction/Helpers.h"
 #include "Transaction/Methods.h"
 #include "VocBase/LogicalCollection.h"
 #include "VocBase/ManagedDocumentResult.h"
 #include "Utils/CollectionNameResolver.h"
+
+#include "StorageEngine/EngineSelectorFeature.h"
 #include "MMFiles/MMFilesAqlFunctions.h"
 #include "MMFiles/MMFilesGeoIndex.h"
+#include "RocksDBEngine/RocksDBAqlFunctions.h"
+#include "RocksDBEngine/RocksDBFulltextIndex.h"
+#include "RocksDBEngine/RocksDBGeoIndex.h"
 
 #include <velocypack/Iterator.h>
 #include <velocypack/velocypack-aliases.h>
@@ -202,8 +207,46 @@ AqlValue Geo::distancePointToPoint(const AqlValue geoJSONA, const AqlValue geoJS
   }
 };
 
+arangodb::RocksDBGeoIndex* getRocksDBGeoIndex(
+    transaction::Methods* trx, TRI_voc_cid_t const& cid,
+    std::string const& collectionName) {
+  // NOTE:
+  // Due to trx lock the shared_index stays valid
+  // as long as trx stays valid.
+  // It is save to return the Raw pointer.
+  // It can only be used until trx is finished.
+  trx->addCollectionAtRuntime(cid, collectionName);
+  Result res = trx->state()->ensureCollections();
+  if (!res.ok()) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(res.errorNumber(), res.errorMessage());
+  }
+
+  auto document = trx->documentCollection(cid);
+  if (document == nullptr) {
+    THROW_ARANGO_EXCEPTION_FORMAT(TRI_ERROR_ARANGO_COLLECTION_NOT_FOUND, "'%s'",
+                                  collectionName.c_str());
+  }
+
+  arangodb::RocksDBGeoIndex* index = nullptr;
+  for (auto const& idx : document->getIndexes()) {
+    if (idx->type() == arangodb::Index::TRI_IDX_TYPE_GEO1_INDEX ||
+        idx->type() == arangodb::Index::TRI_IDX_TYPE_GEO2_INDEX) {
+      index = static_cast<arangodb::RocksDBGeoIndex*>(idx.get());
+      break;
+    }
+  }
+
+  if (index == nullptr) {
+    THROW_ARANGO_EXCEPTION_PARAMS(TRI_ERROR_QUERY_GEO_INDEX_MISSING,
+                                  collectionName.c_str());
+  }
+
+  trx->pinData(cid);
+  return index;
+}
+
 /// @brief Load geoindex for collection name
-arangodb::MMFilesGeoIndex* getGeoIndex(
+arangodb::MMFilesGeoIndex* getMMFilesGeoIndex(
     transaction::Methods* trx, TRI_voc_cid_t const& cid,
     std::string const& collectionName) {
   // NOTE:
@@ -247,7 +290,103 @@ arangodb::MMFilesGeoIndex* getGeoIndex(
   return index;
 }
 
-AqlValue buildGeoResult(transaction::Methods* trx,
+AqlValue buildRocksDBGeoResult(transaction::Methods* trx,
+                               LogicalCollection* collection,
+                               rocksdbengine::GeoCoordinates* cors,
+                               TRI_voc_cid_t const& cid,
+                               S2Polygon* poly
+                               ) {
+
+  // if nullptr, return empty array
+  if (cors == nullptr) {
+    return AqlValue(arangodb::basics::VelocyPackHelper::EmptyArrayValue());
+  }
+
+  // if no results, return empty array
+  size_t const nCoords = cors->length;
+  if (nCoords == 0) {
+    GeoIndex_CoordinatesFree(cors);
+    return AqlValue(arangodb::basics::VelocyPackHelper::EmptyArrayValue());
+  }
+
+  // defines a geo struct with distance value
+  struct geo_coordinate_distance_t {
+    geo_coordinate_distance_t(double distance, LocalDocumentId token)
+        : _distance(distance), _token(token) {}
+
+    double _distance;
+    LocalDocumentId _token;
+  };
+
+  std::vector<geo_coordinate_distance_t> distances;
+
+  try {
+    distances.reserve(nCoords);
+
+    for (size_t i = 0; i < nCoords; ++i) {
+      distances.emplace_back(geo_coordinate_distance_t(
+          cors->distances[i],
+          arangodb::MMFilesGeoIndex::toLocalDocumentId(
+              cors->coordinates[i].data)));
+    }
+  } catch (...) {
+    // in case of exception -> free geo index
+    GeoIndex_CoordinatesFree(cors);
+    THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);
+  }
+
+  // free geo index
+  GeoIndex_CoordinatesFree(cors);
+
+  // sort result by distance
+  std::sort(distances.begin(), distances.end(),
+      [](geo_coordinate_distance_t const& left,
+        geo_coordinate_distance_t const& right) {
+      return left._distance < right._distance;
+      });
+
+  try {
+    ManagedDocumentResult mmdr;
+    // create builder object within transaction context
+    transaction::BuilderLeaser builder(trx);
+    // open result array
+    builder->openArray();
+
+    AqlValueMaterializer materializer(trx);
+    VPackSlice s;
+    // Debug only. Prints the returned length of results
+    // int LENGTH = 0;
+    for (auto& it : distances) {
+      if (collection->readDocument(trx, it._token, mmdr)) {
+        VPackSlice doc(mmdr.vpack());
+        if (doc.hasKey("coordinates")) {
+          VPackSlice coordinates(doc.get("coordinates"));
+          if (coordinates.at(0).isDouble() && coordinates.at(1).isDouble()) {
+            S2Point point = S2LatLng::FromDegrees(coordinates.at(1).getDouble(), coordinates.at(0).getDouble()).Normalized().ToPoint();
+            // if point is within poly, add object to result set
+            if (poly->Contains(point)) {
+              // Debug only. Prints the returned length of results
+              // LENGTH = LENGTH + 1;
+              mmdr.addToBuilder(*builder.get(), true);
+            }
+          }
+        }
+      }
+    }
+    // close result array
+    builder->close();
+
+    //Debug only. Prints the returned length of results
+    //LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "LENGTH OF RESULT SET : " << LENGTH;
+
+    // return calculated aql value
+    return AqlValue(builder.get());
+  } catch (...) {
+    THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);
+  }
+}
+
+AqlValue buildMMFilesGeoResult(transaction::Methods* trx,
                                LogicalCollection* collection,
                                GeoCoordinates* cors,
                                TRI_voc_cid_t const& cid,
@@ -268,11 +407,11 @@ AqlValue buildGeoResult(transaction::Methods* trx,
 
   // defines a geo struct with distance value
   struct geo_coordinate_distance_t {
-    geo_coordinate_distance_t(double distance, DocumentIdentifierToken token)
+    geo_coordinate_distance_t(double distance, LocalDocumentId token)
         : _distance(distance), _token(token) {}
 
     double _distance;
-    DocumentIdentifierToken _token;
+    LocalDocumentId _token;
   };
 
   std::vector<geo_coordinate_distance_t> distances;
@@ -283,7 +422,7 @@ AqlValue buildGeoResult(transaction::Methods* trx,
     for (size_t i = 0; i < nCoords; ++i) {
       distances.emplace_back(geo_coordinate_distance_t(
           cors->distances[i],
-          arangodb::MMFilesGeoIndex::toDocumentIdentifierToken(
+          arangodb::MMFilesGeoIndex::toLocalDocumentId(
               cors->coordinates[i].data)));
     }
   } catch (...) {
@@ -375,19 +514,37 @@ AqlValue Geo::pointsInPolygon(const AqlValue collectionName, const AqlValue geoJ
 
   // check if geo index is available -- if no index available -> full scan
   TRI_voc_cid_t cid = trx->resolver()->getCollectionIdLocal(collectionNameString);
-  arangodb::MMFilesGeoIndex* index = getGeoIndex(trx, cid, collectionNameString);
 
-  // if maintainer mode enabled a core will be returned by this if index == nullptr
-  TRI_ASSERT(index != nullptr);
-  // stops whether or not a ditch has been created for the collection
-  TRI_ASSERT(trx->isPinned(cid));
 
-  // 3a. Get all points within that circle using the geo inde
-  GeoCoordinates* cors = index->withinQuery(
-      trx, S2LatLng(center).lng().degrees(), S2LatLng(center).lat().degrees(), radius);
+  AqlValue indexedPoints;
 
-  // 4. Check each point if it exists in the range of the given polygon
-  AqlValue indexedPoints = buildGeoResult(trx, index->collection(), cors, cid, poly);
+  StorageEngine* engine = EngineSelectorFeature::ENGINE;
+  bool haveRocks = engine->typeName() == RocksDBEngine::EngineName;
+  if (haveRocks) {
+    arangodb::RocksDBGeoIndex* index = getRocksDBGeoIndex(trx, cid, collectionNameString);
+    // if maintainer mode enabled a core will be returned by this if index == nullptr
+    TRI_ASSERT(index != nullptr);
+    // stops whether or not a ditch has been created for the collection
+    TRI_ASSERT(trx->isPinned(cid));
+
+    rocksdbengine::GeoCoordinates* cors = index->withinQuery(
+        trx, S2LatLng(center).lng().degrees(), S2LatLng(center).lat().degrees(), radius);
+    
+    // 4. Check each point if it exists in the range of the given polygon
+    indexedPoints = buildRocksDBGeoResult(trx, index->collection(), cors, cid, poly);
+  } else {
+    arangodb::MMFilesGeoIndex* index = getMMFilesGeoIndex(trx, cid, collectionNameString);
+    // if maintainer mode enabled a core will be returned by this if index == nullptr
+    TRI_ASSERT(index != nullptr);
+    // stops whether or not a ditch has been created for the collection
+    TRI_ASSERT(trx->isPinned(cid));
+
+    GeoCoordinates* cors = index->withinQuery(
+        trx, S2LatLng(center).lng().degrees(), S2LatLng(center).lat().degrees(), radius);
+
+    // 4. Check each point if it exists in the range of the given polygon
+    indexedPoints = buildMMFilesGeoResult(trx, index->collection(), cors, cid, poly);
+  }
 
   // 5. Put all fitting points into a new AqlValue MultiPoint Value and return
   return indexedPoints;

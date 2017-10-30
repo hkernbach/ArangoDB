@@ -48,6 +48,7 @@ AgencyFeature::AgencyFeature(application_features::ApplicationServer* server)
       _minElectionTimeout(1.0),
       _maxElectionTimeout(5.0),
       _supervision(false),
+      _supervisionTouched(false),
       _waitForSync(true),
       _supervisionFrequency(1.0),
       _compactionStepSize(20000),
@@ -208,6 +209,23 @@ void AgencyFeature::validateOptions(std::shared_ptr<ProgramOptions> options) {
                                        << "' specified for --agency.my-address";
       FATAL_ERROR_EXIT();
     }
+
+    std::string fallback = unified;
+    // Now extract the hostname/IP:
+    auto pos = fallback.find("://");
+    if (pos != std::string::npos) {
+      fallback = fallback.substr(pos+3);
+    }
+    pos = fallback.rfind(':');
+    if (pos != std::string::npos) {
+      fallback = fallback.substr(0, pos);
+    }
+    auto ss = ServerState::instance();
+    ss->findHost(fallback);
+  }
+
+  if (result.touched("agency.supervision")) {
+    _supervisionTouched = true;
   }
 }
 
@@ -259,9 +277,9 @@ void AgencyFeature::start() {
 
   _agent.reset(new consensus::Agent(consensus::config_t(
       _size, _poolSize, _minElectionTimeout, _maxElectionTimeout, endpoint,
-      _agencyEndpoints, _supervision, _waitForSync, _supervisionFrequency,
-      _compactionStepSize, _compactionKeepSize, _supervisionGracePeriod,
-      _cmdLineTimings, _maxAppendSize)));
+      _agencyEndpoints, _supervision, _supervisionTouched, _waitForSync,
+      _supervisionFrequency, _compactionStepSize, _compactionKeepSize,
+      _supervisionGracePeriod, _cmdLineTimings, _maxAppendSize)));
 
   AGENT = _agent.get();
 

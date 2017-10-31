@@ -2554,6 +2554,33 @@ AqlValue Functions::GeoEquals(arangodb::aql::Query* query,
   return AqlValue(arangodb::basics::VelocyPackHelper::FalseValue());
 }
 
+/// @brief function POINTS IN MULTIPOLYGON
+AqlValue Functions::GeoPointsInMultiPolygon(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+  Geo g;
+
+  AqlValue collectionName = ExtractFunctionParameterValue(trx, parameters, 0);
+  AqlValue geoJSONA = ExtractFunctionParameterValue(trx, parameters, 1);
+ 
+  // check if collectionName is a valid string 
+  if (!collectionName.isString()) {
+    RegisterWarning(query, "GEO_POINTSINMULTIPOLYGON",
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+
+  // check if geoJSONA is a valid object
+  if (!geoJSONA.isObject()) {
+    RegisterWarning(query, "GEO_POINTSINMULTIPOLYGON",
+                    TRI_ERROR_QUERY_FUNCTION_ARGUMENT_TYPE_MISMATCH);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  } else {
+    // Check if geoJSONA is a valid Polygon
+    return g.helperPointsInMultiPolygon(collectionName, geoJSONA, trx);
+  }
+}
+
 /// @brief function POINTS IN POLYGON
 AqlValue Functions::GeoPointsInPolygon(arangodb::aql::Query* query,
                              transaction::Methods* trx,

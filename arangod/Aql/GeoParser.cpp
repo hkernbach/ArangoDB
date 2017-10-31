@@ -237,28 +237,40 @@ vector<S2Polygon*> MakeMultiPolygon(const AqlValue geoJSON) {
 
   VPackSlice slice = geoJSON.slice();
   VPackSlice coordinates = slice.get("coordinates");
+
+  Builder b;
+
+  b.add(Value(ValueType::Object));
+  b.add("type", Value("Polygon"));
+  b.add("coordinates", Value(ValueType::Array));
+
   if (coordinates.isArray()) {
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(I)";
     for (auto const& polygons : VPackArrayIterator(coordinates)) {
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(2)";
       if (polygons.isArray()) {
         for (auto const& polygon : VPackArrayIterator(polygons)) {
-          Builder b;
-
-          b.add(Value(ValueType::Object));
-          b.add("type", Value("Polygon"));
-          b.add("coordinates", Value(ValueType::Array));
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(3)";
           b.openArray();
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(4)";
           for (auto const& coord : VPackArrayIterator(polygon)) {
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(5)";
             if (coord.isNumber()) {
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(6)";
               b.add(Value(coord.getNumber<double>()));
             } else {
-              return polygonsArr;
+              THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid type in coordinates array.");
             }
           }
           b.close();
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(7)";
           b.close();
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(8)";
           b.close();
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(9)";
 
           polygonsArr.push_back(MakePolygon(AqlValue(b)));
+    LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "(10)";
         }
       }
     }
@@ -318,7 +330,6 @@ S2Polygon* GeoParser::parseGeoJSONPolygon(const AqlValue geoJSON) {
 
 /// @brief create and return MultiPolygon
 vector<S2Polygon*> GeoParser::parseGeoJSONMultiPolygon(const AqlValue geoJSON) {
-  vector<S2Polygon*> multiPolygon;
   return MakeMultiPolygon(geoJSON);
 };
 

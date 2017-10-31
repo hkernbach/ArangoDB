@@ -434,6 +434,8 @@ void AqlFunctionFeature::addGeometryFunctions() {
        &Functions::GeoIntersects});
   add({"GEO_POINTSINPOLYGON", "h,.", false, false, true, true,
        &Functions::GeoPointsInPolygon});
+  add({"GEO_POINTSINMULTIPOLYGON", "h,.", false, false, true, true,
+       &Functions::GeoPointsInMultiPolygon});
 }
 
 void AqlFunctionFeature::addGeometryTypeFunctions() {

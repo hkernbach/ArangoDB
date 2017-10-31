@@ -500,6 +500,16 @@ AqlValue buildMMFilesGeoResult(transaction::Methods* trx,
 }
 
 AqlValue Geo::pointsInMultiPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx) {
+  // geoJSONA expects GeoJSON MultiPolygon
+  GeoParser gp;
+ 
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "STEP 1";
+
+  // Parse MultiPolygon
+  vector<S2Polygon*> polygons = gp.parseGeoJSONMultiPolygon(geoJSONA);
+  LOG_TOPIC(ERR, arangodb::Logger::FIXME) << "STEP 2";
+
+  return geoJSONA;
 }
 
 // Returns all available points within a Polygon

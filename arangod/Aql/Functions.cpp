@@ -2327,6 +2327,64 @@ AqlValue Functions::GeoPoint(arangodb::aql::Query* query,
   return AqlValue(b);
 }
 
+AqlValue Functions::GeoMultiPolygon(arangodb::aql::Query* query,
+                             transaction::Methods* trx,
+                             VPackFunctionParameters const& parameters) {
+
+  ValidateParameters(parameters, "GEO_MULTIPOLYGON", 1, 1);
+  
+  size_t const n = parameters.size();
+
+  if (n < 1) {
+    // no parameters
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+
+  AqlValue geoArray = ExtractFunctionParameterValue(trx, parameters, 0);
+  
+  if (!geoArray.isArray()) {
+    RegisterWarning(query, "GEO_MULTIPOLYGON",
+                    TRI_ERROR_QUERY_ARRAY_EXPECTED);
+    return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+  }
+  
+  Builder b;
+
+  b.add(Value(ValueType::Object));
+  b.add("type", Value("MultiPolygon"));
+  b.add("coordinates", Value(ValueType::Array));
+  
+  AqlValueMaterializer materializer(trx);
+  VPackSlice s = materializer.slice(geoArray, false);
+  for (auto const& v : VPackArrayIterator(s)) {
+    if (v.isArray()) {
+      b.openArray();
+      for (auto const& x : VPackArrayIterator(v)) {
+        b.openArray();
+        for (auto const& coord : VPackArrayIterator(x)) {
+          if (coord.isNumber()) {
+            b.add(Value(coord.getNumber<double>()));
+          } else {
+            RegisterInvalidArgumentWarning(query, "GEO_MULTIPOLYGON");
+            return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+          }
+        }
+        b.close();
+      }
+      b.close();
+    } else {
+      RegisterInvalidArgumentWarning(query, "GEO_MULTIPOLYGON");
+      return AqlValue(arangodb::basics::VelocyPackHelper::NullValue());
+    }
+  }
+
+  b.close();
+  b.close();
+
+  return AqlValue(b);
+
+}
+
 /// @brief function GEO_POLYGON
 AqlValue Functions::GeoPolygon(arangodb::aql::Query* query,
                              transaction::Methods* trx,
@@ -2454,11 +2512,6 @@ AqlValue Functions::GeoLineString(arangodb::aql::Query* query,
 }
 
 AqlValue Functions::GeoMultiLineString(arangodb::aql::Query* query,
-                             transaction::Methods* trx,
-                             VPackFunctionParameters const& parameters) {
-}
-
-AqlValue Functions::GeoMultiPolygon(arangodb::aql::Query* query,
                              transaction::Methods* trx,
                              VPackFunctionParameters const& parameters) {
 }

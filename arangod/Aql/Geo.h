@@ -67,7 +67,9 @@ class Geo {
    // internal and helper functions
    AqlValue pointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
    AqlValue pointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx);
+   AqlValue pointsInMultiPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx);
    AqlValue helperPointsInPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx);
+   AqlValue helperPointsInMultiPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx);
    // TODO IMPLEMENT AqlValue helperPointsInPolygon(const AqlValue geoJSONA, const AqlValue geoJSONB);
  private:
 

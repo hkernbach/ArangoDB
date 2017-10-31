@@ -21,12 +21,14 @@
 /// @author Heiko Kernbach
 ////////////////////////////////////////////////////////////////////////////////
 
+#include "Functions.h"
 #include "GeoParser.h"
 #include "Basics/VelocyPackHelper.h"
 #include "Logger/Logger.h"
 
 #include <velocypack/Iterator.h>
 #include <velocypack/velocypack-aliases.h>
+#include <velocypack/vpack.h>
 
 #include <geometry/s2.h>
 #include <geometry/s2loop.h>
@@ -42,6 +44,7 @@ using std::string;
 
 using namespace arangodb::basics;
 using namespace arangodb::aql;
+using namespace arangodb::velocypack;
 
 // This field must be present, and...
 static const string GEOJSON_TYPE = "type";
@@ -112,6 +115,34 @@ bool GeoParser::parseGeoJSONTypePolygon(const AqlValue geoJSON) {
 
   // verify type
   if (GEOJSON_TYPE_POLYGON != typeString) {
+    return 0;
+  }
+
+  if (coordinates.length() < 4) {
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Too less coordinate values to build a polygon.");
+  }
+
+  return 1;
+};
+
+/// @brief parse GeoJSON MultiPolygon Type
+bool GeoParser::parseGeoJSONTypeMultiPolygon(const AqlValue geoJSON) {
+  if (!geoJSON.isObject()) {
+    return 0;
+  }
+
+  VPackSlice slice = geoJSON.slice();
+  VPackSlice type = slice.get("type");
+  VPackSlice coordinates = slice.get("coordinates");
+ 
+  if (!type.isString()) {
+    return GeoParser::GEOJSON_UNKNOWN;
+  }
+
+  const string& typeString = type.copyString();
+
+  // verify type
+  if (GEOJSON_TYPE_MULTI_POLYGON != typeString) {
     return 0;
   }
 
@@ -200,6 +231,42 @@ S2Polygon* MakePolygon(const AqlValue geoJSON) {
   return new S2Polygon(&loops);  // Takes ownership.
 }
 
+// create a s2 MultiPolygon function
+vector<S2Polygon*> MakeMultiPolygon(const AqlValue geoJSON) {
+  vector<S2Polygon*> polygonsArr;
+
+  VPackSlice slice = geoJSON.slice();
+  VPackSlice coordinates = slice.get("coordinates");
+  if (coordinates.isArray()) {
+    for (auto const& polygons : VPackArrayIterator(coordinates)) {
+      if (polygons.isArray()) {
+        for (auto const& polygon : VPackArrayIterator(polygons)) {
+          Builder b;
+
+          b.add(Value(ValueType::Object));
+          b.add("type", Value("Polygon"));
+          b.add("coordinates", Value(ValueType::Array));
+          b.openArray();
+          for (auto const& coord : VPackArrayIterator(polygon)) {
+            if (coord.isNumber()) {
+              b.add(Value(coord.getNumber<double>()));
+            } else {
+              return polygonsArr;
+            }
+          }
+          b.close();
+          b.close();
+          b.close();
+
+          polygonsArr.push_back(MakePolygon(AqlValue(b)));
+        }
+      }
+    }
+  }
+
+  return polygonsArr;
+}
+
 // create a s2 polyline function
 S2Polyline* MakePolyline(const AqlValue geoJSON) {
   vector<S2Point> vertices;
@@ -247,6 +314,12 @@ vector<S2Point> MakeMultiPoint(const AqlValue geoJSON) {
 /// @brief create and return polygon
 S2Polygon* GeoParser::parseGeoJSONPolygon(const AqlValue geoJSON) {
   return MakePolygon(geoJSON);
+};
+
+/// @brief create and return MultiPolygon
+vector<S2Polygon*> GeoParser::parseGeoJSONMultiPolygon(const AqlValue geoJSON) {
+  vector<S2Polygon*> multiPolygon;
+  return MakeMultiPolygon(geoJSON);
 };
 
 /// @brief create and return polyline

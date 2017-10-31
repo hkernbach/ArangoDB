@@ -139,6 +139,23 @@ AqlValue Geo::helperPointsInPolygon(const AqlValue collectionName, const AqlValu
   }
 };
 
+// return all points available which are inside of the given multipolygon
+AqlValue Geo::helperPointsInMultiPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx) {
+  GeoParser gp;
+  // verify if object is in geojson format
+  if (!gp.parseGeoJSONType(geoJSONA)) {
+    // TODO: add invalid geo json error
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON type.");
+  }
+
+  if (gp.parseGeoJSONTypeMultiPolygon(geoJSONA)) {
+    return pointsInMultiPolygon(collectionName, geoJSONA, trx);
+  } else {
+    // TODO: add invalid geo json error
+    THROW_ARANGO_EXCEPTION_MESSAGE(TRI_ERROR_GRAPH_INVALID_GRAPH, "Invalid GeoJSON MultiPolygon.");
+  }
+};
+
 bool Geo::pointEqualsPoint(const AqlValue geoJSONA, const AqlValue geoJSONB, transaction::Methods* trx) {
   //GeoParser gp;
   //S2Point pointA = gp.parseGeoJSONPoint(geoJSONA);
@@ -480,6 +497,9 @@ AqlValue buildMMFilesGeoResult(transaction::Methods* trx,
   } catch (...) {
     THROW_ARANGO_EXCEPTION(TRI_ERROR_OUT_OF_MEMORY);
   }
+}
+
+AqlValue Geo::pointsInMultiPolygon(const AqlValue collectionName, const AqlValue geoJSONA, transaction::Methods* trx) {
 }
 
 // Returns all available points within a Polygon
